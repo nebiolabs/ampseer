@@ -2,9 +2,58 @@
 name = "ampseer"
 version = "0.1.0"
 edition = "2021"
+authors = ["Bradley W. Langhorst <langhorst@neb.com>"]
+license = "AGPL-3.0"
+keywords = ["amplicon", "sequencing", "artic"]
+repository = "https://github.com/nebiolabs/ampseer"    
+description = """
+This program compares fastq read files (on stdin or from first argument) with expected
+mulitiplex PCR amplicon start and end sequences to identify which of
+the specified PCR schemes was used to create the library
+"""
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-structopt = "^0.3"
-noodles = { version = "0.13.0", features = ["bam", "fastq"] }
+log = "0.4"
+simple_logger = { version = "1.16.0", features = ["stderr"] }
+clap = { version = "3.0.0", features = ["cargo", "derive"] }
+human-panic = "1.0.3"
+better-panic = "0.2.0"  
+noodles = { version = "0.16.0", features = ["fasta", "bam", "fastq"] }
+anyhow = "*"
+
+[dev-dependencies]
+assert_cmd = "2.0.2"
+predicates = "2.1.0"
+
+[profile.dev]
+opt-level=0
+debug = true
+rpath = false
+lto = false
+debug-assertions = true
+codegen-units = 4
+
+[profile.release]
+opt-level=3
+debug = false
+rpath = false
+lto = true
+debug-assertions = false
+codegen-units = 1
+
+[profile.test]
+opt-level = 1
+debug = true
+rpath = false
+lto = false
+debug-assertions = true
+codegen-units = 4
+
+[profile.bench]
+opt-level = 3
+debug = false
+rpath = false
+lto = true
+debug-assertions = false
+codegen-units = 1
