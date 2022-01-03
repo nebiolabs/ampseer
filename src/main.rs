@@ -5,6 +5,7 @@ use human_panic::setup_panic;
 extern crate better_panic;
 
 
+// use std::io::{stdin, stdout, BufWriter}; TODO add support for reads on stdin
 use clap::Parser;
 use simple_logger::SimpleLogger;
 use anyhow::{anyhow, Context, Result};
@@ -13,9 +14,6 @@ use std::{
     fs::File,
     io::BufReader,
 };
-use noodles;
-
-
 
 #[derive(Parser)]
 #[clap(author, version, about)]
@@ -33,7 +31,31 @@ struct Cli {
     debug: usize,
 }
 
+fn check_inputs(args: &Cli) -> Result<(), anyhow::Error> {
+    let mut error_messages = Vec::new();
 
+    if args.reads.exists() && args.primer_sets.exists() {
+        log::info!(
+            "Searching for primers from {:?} in reads from: {:?}",
+            args.primer_sets,
+            args.reads
+        );
+    } else {
+        if !args.primer_sets.exists() {
+            error_messages.push(format!("Could not find primer sets at {:?}", args.primer_sets.as_path()));
+        }
+        if !args.reads.exists() {
+            error_messages.push(format!("Could not find reads at {:?}", args.reads.as_path()));
+        }
+    }
+    if !error_messages.is_empty() {
+        log::error!("{}", error_messages.join("\n"));
+        //Err(anyhow!("Invalid input:{:?}", error_messages.join("\n")));
+        Err(anyhow!("Invalid input"))
+    } else {
+        Ok(())
+    }
+}
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Human Panic. Only enabled when *not* debugging.
     #[cfg(not(debug_assertions))]
@@ -55,32 +77,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     SimpleLogger::new().with_utc_timestamps().init().unwrap();
 
     let args = Cli::parse();
+    check_inputs(&args)?;
 
-    if args.reads.exists() && args.primer_sets.exists() {
-        log::info!(
-            "Searching for primers from {:?} in reads from: {:?}",
-            args.primer_sets,
-            args.reads
-        );
-    } else {
-        if !args.primer_sets.exists() {
-            log::error!("Could not find primer sets at {:?}", args.primer_sets);
-            //return Err();
-        }
-        if !args.reads.exists() {
-            log::error!("Could not find reads at {:?}", args.reads);
-        }
-    }
-    if let Some(primer_sets_filename) = args.primer_sets.to_str() {
-        let mut reader = File::open(primer_sets_filename)
-            .map(BufReader::new)
-            .map(noodles::fasta::Reader::new)
-            .with_context(|| anyhow!("Failed to open primer_sets file: {:?}", primer_sets_filename))?;
+    let mut reader = File::open(args.primer_sets.as_path())
+        .map(BufReader::new)
+        .map(noodles::fasta::Reader::new)
+        .with_context(|| anyhow!("Failed to open primer_sets file: {:?}", args.primer_sets.as_path()))?;
 
-        for result in reader.records() {
-            let record = result?;
-            println!("{}\t{}", record.name(), record.sequence().len());
-        }
+    for result in reader.records() {
+        let record = result?;
+        println!("{}\t{}", record.name(), record.sequence().len());
     }
     // sniff the input file format
     //import primer schemes to hash table
@@ -93,22 +99,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // }
     Ok(())
 }
-
-// use std::io::{stdin, stdout, BufWriter};
-// use structopt::StructOpt;
-
-// /// This program compares fastq read files (on stdin or from first argument) with expected
-// /// mulitiplex PCR amplicon start and end sequences to identify which of
-// /// the specified PCR schemes was used during library preparation
-
-
-// fn main() {
-//     let args = Cli::from_args();
-
-//     println!(
-//         "AmpSeer comparing: {reads} to {primers}",
-//         reads = args.reads.display(),
-//         primers = args.primer_path.display()
-//     );
-
-// }
