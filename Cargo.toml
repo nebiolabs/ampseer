@@ -20,7 +20,7 @@ clap = { version = "3.0.0", features = ["cargo", "derive"] }
 human-panic = "1.0.3"
 better-panic = "0.2.0"  
 noodles = { version = "0.16.0", features = ["fasta", "bam", "fastq"] }
-anyhow = "*"
+anyhow = "1.0"
 
 [dev-dependencies]
 assert_cmd = "2.0.2"
