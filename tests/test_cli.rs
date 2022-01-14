@@ -29,10 +29,11 @@ fn test_hazard_exit_code() {
 
 #[test]
 fn test_insufficient_arguments() {
-    let expected_output_predicate = predicate::function(|x: &str| {
+    let expected_output_predicate = || predicate::function(|x: &str| {
         return x.contains("required arguments");
     });
     let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
-    cmd.arg("--reads").arg("y").assert().stderr(expected_output_predicate);
-    //cmd.arg("--primer-sets").arg("x").assert().stdout(expected_output_predicate);
+    cmd.arg("--reads").arg("y").assert().stderr(expected_output_predicate());
+    let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
+    cmd.arg("--primer-sets").arg("x").assert().stderr(expected_output_predicate());
 }
