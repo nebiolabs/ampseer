@@ -53,7 +53,7 @@ fn path_to_fixtures() -> &'static Path {
 fn non_matching_primer_sets() {
     let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
 
-    cmd.arg("--primer-sets").arg(path_to_fixtures().join("ARTICv3.bed.fasta"));
+    cmd.arg("--primer-sets").arg(path_to_fixtures().join("ARTIC_v3.bed.fasta"));
     cmd.arg("--reads").arg(path_to_fixtures().join("vss.fastq"));
     cmd.assert().stdout( predicate::function(|x: &str| x.contains("unknown")));
 }
