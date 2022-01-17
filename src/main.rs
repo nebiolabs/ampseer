@@ -85,13 +85,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     check_inputs(&args)?;
 
     //TODO: add a list of multiple primer sets so we can differentiate between them
-    let mut reader = File::open(args.primer_sets.as_path())
+    let mut primer_reader = File::open(args.primer_sets.as_path())
         .map(BufReader::new)
         .map(noodles::fasta::Reader::new)
         .with_context(|| anyhow!("Failed to open primer_sets file: {:?}", args.primer_sets.as_path()))?;
 
+    //TODO: maybe consider an array of size 65536 instead and just index into that array
     let mut primer_counts:HashMap<Kmer16,i32> = HashMap::new();
-    for result in reader.records() {
+    for result in primer_reader.records() {
         let record = result?;
         popuplate_primer_count_hash(&mut primer_counts, record)?;
     }
@@ -100,7 +101,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //TODO: infer fragmentation or full length
     //TODO: check that ratio of left and right are similar for each primer pair
 
+
     // extract beginning bases of R1 and R2
+    let mut fastq_reader = File::open(args.reads.as_path())
+        .map(BufReader::new)
+        .map(noodles::fastq::Reader::new)
+        .with_context(|| anyhow!("Failed to open primer_sets file: {:?}", args.primer_sets.as_path()))?;
+
+    let mut other_count = 0;
+    for result in fastq_reader.records() {
+        let record = result?;
+        let read_seq = DnaString::from_acgt_bytes(record.sequence().as_ref());
+        let key:Kmer16 = read_seq.slice(0,16).get_kmer(0);
+
+        primer_counts.entry(key).and_modify(|v| { *v += 1 });
+
+        // match primer_counts.entry(key) {
+        //     std::collections::hash_map::Entry::Occupied(val) => *val.into_mut() += 1,
+        //     std::collections::hash_map::Entry::Vacant(_) => other_count += 1
+        // }
+        other_count += 1;
+    }
+    other_count -= primer_counts.values().sum::<i32>();
+    log::info!("classified reads: {:?}",
+                primer_counts.iter()
+                             .filter(|&(_,&count)|count >0)
+                             .collect::<HashMap<&Kmer16,&i32>>() );
+    log::info!("unclassified reads: {}", other_count);
 
     //count in batches of N reads
     // let lines = io::stdin().lines();
@@ -110,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Adds an 8-bit representation of the primer to the counter hash.
+/// Adds an 8-bit (16 nt) representation of the primer to the counter hash.
 fn popuplate_primer_count_hash(primer_counts: &mut HashMap<debruijn::kmer::IntKmer<u32>, i32>, record: noodles::fasta::Record,) -> Result<(), anyhow::Error> {
     let key_length:usize = 16;
     let key:Kmer16;
