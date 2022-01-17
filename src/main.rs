@@ -94,7 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut primer_counts:HashMap<Kmer16,i32> = HashMap::new();
     for result in primer_reader.records() {
         let record = result?;
-        popuplate_primer_count_hash(&mut primer_counts, record)?;
+        populate_primer_count_hash(&mut primer_counts, record)?;
     }
     //TODO: compare all primer sets, remove ambiguous primers 
     //TODO: count up all other start/ends reporting the top N - compare to generate confidence estimate
@@ -138,7 +138,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Adds an 8-bit (16 nt) representation of the primer to the counter hash.
-fn popuplate_primer_count_hash(primer_counts: &mut HashMap<debruijn::kmer::IntKmer<u32>, i32>, record: noodles::fasta::Record,) -> Result<(), anyhow::Error> {
+fn populate_primer_count_hash(primer_counts: &mut HashMap<debruijn::kmer::IntKmer<u32>, i32>, record: noodles::fasta::Record,) -> Result<(), anyhow::Error> {
     let key_length:usize = 16;
     let key:Kmer16;
     let primer_seq = DnaString::from_acgt_bytes(record.sequence().as_ref());
