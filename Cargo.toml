@@ -19,7 +19,7 @@ log = "0.4"
 simple_logger = { version = "1.16.0", features = ["stderr"] }
 clap = { version = "3.0.0", features = ["cargo", "derive"] }
 human-panic = "1.0.3"
-better-panic = "0.2.0"  
+better-panic = "0.3.0"  
 noodles = { version = "0.17.0", features = ["fasta", "bam", "fastq"] }
 debruijn = "0.3.4"
 anyhow = "1.0"
