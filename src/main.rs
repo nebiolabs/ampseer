@@ -100,8 +100,64 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
     check_inputs(&args)?;
 
+    let mut primer_set_counters = import_primer_sets(&args.primer_sets)?;
+
+    classify_reads(&args.reads, &mut primer_set_counters)?;
+
+    let ps_detected = identify_primer_set(primer_set_counters);
+
+    println!("{}", ps_detected);
+
+    Ok(())
+}
+
+/// populates counts of primers observed in reads
+fn classify_reads(
+    reads_file: &PathBuf,
+    primer_set_counters: &mut Vec<PrimerSet>,
+) -> Result<(), anyhow::Error> {
+    let mut fastq_reader = File::open(reads_file.as_path())
+        .map(BufReader::new)
+        .map(noodles::fastq::Reader::new)
+        .with_context(|| {
+            anyhow!(
+                "Failed to open primer_sets file: {:?}",
+                reads_file.as_path()
+            )
+        })?;
+    Ok(for result in fastq_reader.records() {
+        let record = result?;
+        let read_seq = DnaString::from_acgt_bytes(record.sequence().as_ref());
+        if read_seq.len() < 16 {
+            log::warn!("skipping short read {:?}", read_seq);
+            break;
+        }
+        // extracts beginning and ending bases of each read
+        let left_key: Kmer16 = read_seq.slice(0, 16).get_kmer(0);
+        let right_key: Kmer16 = read_seq
+            .slice(read_seq.len() - 16, read_seq.len())
+            .get_kmer(0);
+
+        for psc in &mut *primer_set_counters {
+            for key in [left_key, right_key] {
+                match psc.primer_counter.entry(key) {
+                    Entry::Occupied(val) => {
+                        *val.into_mut() += 1;
+                        psc.num_consistent_reads += 1
+                    }
+                    Entry::Vacant(_) => psc.num_inconsistent_reads += 1,
+                }
+                psc.frac_consistent = psc.num_consistent_reads as f32
+                    / (psc.num_consistent_reads + psc.num_inconsistent_reads) as f32
+            }
+        }
+    })
+}
+
+/// imports primer sets, creating primer_set_counter objects containing k-mers to search for
+fn import_primer_sets(primer_set_paths: &Vec<PathBuf>) -> Result<Vec<PrimerSet>, anyhow::Error> {
     let mut primer_set_counters: Vec<PrimerSet> = Vec::new();
-    for ps_filename in args.primer_sets {
+    for ps_filename in primer_set_paths {
         let mut primer_reader = File::open(ps_filename.as_path())
             .map(BufReader::new)
             .map(noodles::fasta::Reader::new)
@@ -130,60 +186,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             frac_consistent: 0.0,
         });
     }
-    //TODO: compare all primer sets, remove ambiguous primers
-    //TODO: count up all other start/ends reporting the top N - compare to generate confidence estimate
-    //TODO: infer fragmentation or full length
-    //TODO: check that ratio of left and right are similar for each primer pair
-
-    // extract beginning bases of R1 and R2
-    let mut fastq_reader = File::open(args.reads.as_path())
-        .map(BufReader::new)
-        .map(noodles::fastq::Reader::new)
-        .with_context(|| {
-            anyhow!(
-                "Failed to open primer_sets file: {:?}",
-                args.reads.as_path()
-            )
-        })?;
-
-    //counts reads consistent with each primer set
-    for result in fastq_reader.records() {
-        let record = result?;
-        let read_seq = DnaString::from_acgt_bytes(record.sequence().as_ref());
-        if read_seq.len() < 16 {
-            log::warn!("skipping short read {:?}", read_seq);
-            break;
-        }
-        let left_key: Kmer16 = read_seq.slice(0, 16).get_kmer(0);
-        let right_key: Kmer16 = read_seq
-            .slice(read_seq.len() - 16, read_seq.len())
-            .get_kmer(0);
-        //TODO consider last 16 bases too - for full-length inserts
-        for psc in &mut primer_set_counters {
-            for key in [left_key, right_key] {
-                match psc.primer_counter.entry(key) {
-                    Entry::Occupied(val) => {
-                        *val.into_mut() += 1;
-                        psc.num_consistent_reads += 1
-                    }
-                    Entry::Vacant(_) => psc.num_inconsistent_reads += 1,
-                }
-                psc.frac_consistent = psc.num_consistent_reads as f32
-                    / (psc.num_consistent_reads + psc.num_inconsistent_reads) as f32
-            }
-        }
-    }
-
-    let ps_detected = identify_primer_set(primer_set_counters);
-
-    println!("{}", ps_detected);
-
-    Ok(())
+    //TODO: compare all primer sets, removing ambiguous primers
+    Ok(primer_set_counters)
 }
+
 /// summarizes primer set observations deciding which primer set was used
 fn identify_primer_set(primer_set_counters: Vec<PrimerSet>) -> String {
     //TODO: add requirement that X fraction of primers have been observed allowing for some dropouts
     // a primer set with fewer reads classified but with all primers represented is more confident than one with more raw counts.
+
+    //TODO: infer fragmentation or full length
+
+    //TODO: check that ratio of left and right are similar for each primer pair
 
     let mut ps_fracs: Vec<(String, f32)> = Vec::new();
     for psc in primer_set_counters {
@@ -205,7 +219,7 @@ fn identify_primer_set(primer_set_counters: Vec<PrimerSet>) -> String {
 
     ps_fracs.sort_unstable_by_key(|ps_frac| (ps_frac.1 * -1000.0) as i32);
     let ps_detected = if ps_fracs[0].1 > 0.0 {
-        if ps_fracs.len() == 1 || ps_fracs[1].1 <= 0.0  {
+        if ps_fracs.len() == 1 || ps_fracs[1].1 <= 0.0 {
             &ps_fracs[0].0
         } else if ps_fracs.len() == 1 || ps_fracs[0].1 / ps_fracs[1].1 > 5.0 {
             &ps_fracs[0].0
@@ -253,7 +267,7 @@ fn populate_primer_count_hash(
             record.name()
         ));
     }
-    for key in [key,key.rc()] {
+    for key in [key, key.rc()] {
         if primer_counts.contains_key(&key) {
             log::warn!("Ambiguous primer: {:?}", primer_seq);
         } else {
