@@ -8,8 +8,7 @@ extern crate better_panic;
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use debruijn::dna_string::*;
-use debruijn::kmer::Kmer16;
-use debruijn::Vmer;
+use debruijn::{kmer::Kmer16, Mer, Vmer};
 use simple_logger::SimpleLogger;
 use std::{
     collections::hash_map::Entry, collections::HashMap, fs::File, io::BufReader, path::PathBuf,
@@ -41,17 +40,16 @@ struct Cli {
 struct PrimerSet {
     name: String,
     primer_counter: HashMap<Kmer16, i64>,
-    reads_classified: i64,
-    reads_unclassified: i64,
+    num_consistent_reads: i64,
+    num_inconsistent_reads: i64,
+    frac_consistent: f32,
 }
 
 /// checks the passed input structure for reasonableness, printing error if necessary.
 fn check_inputs(args: &Cli) -> Result<(), anyhow::Error> {
     let mut error_messages = Vec::new();
 
-    if args.reads.exists()
-        && args.primer_sets.iter().all(|ps| ps.exists())
-    {
+    if args.reads.exists() && args.primer_sets.iter().all(|ps| ps.exists()) {
         log::info!(
             "Searching for primers from {:?} in reads from: {:?}",
             args.primer_sets,
@@ -114,7 +112,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
             })?;
 
-        //TODO: maybe consider an array of size 65536 instead and just index into that array
+        //TODO: consider an array of size 65536 instead and just index into that array
         let mut primer_counts: HashMap<Kmer16, i64> = HashMap::new();
         for result in primer_reader.records() {
             let record = result?;
@@ -127,8 +125,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .to_string_lossy()
                 .into_owned(),
             primer_counter: primer_counts,
-            reads_classified: 0,
-            reads_unclassified: 0,
+            num_consistent_reads: 0,
+            num_inconsistent_reads: 0,
+            frac_consistent: 0.0,
         });
     }
     //TODO: compare all primer sets, remove ambiguous primers
@@ -146,24 +145,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 args.reads.as_path()
             )
         })?;
+
+    //counts reads consistent with each primer set
     for result in fastq_reader.records() {
         let record = result?;
         let read_seq = DnaString::from_acgt_bytes(record.sequence().as_ref());
-        let key: Kmer16 = read_seq.slice(0, 16).get_kmer(0);
+        if read_seq.len() < 16 {
+            log::warn!("skipping short read {:?}", read_seq);
+            break;
+        }
+        let left_key: Kmer16 = read_seq.slice(0, 16).get_kmer(0);
+        let right_key: Kmer16 = read_seq
+            .slice(read_seq.len() - 16, read_seq.len())
+            .get_kmer(0);
         //TODO consider last 16 bases too - for full-length inserts
         for psc in &mut primer_set_counters {
-            match psc.primer_counter.entry(key) {
-                Entry::Occupied(val) => {
-                    *val.into_mut() += 1;
-                    psc.reads_classified += 1
+            for key in [left_key, right_key] {
+                match psc.primer_counter.entry(key) {
+                    Entry::Occupied(val) => {
+                        *val.into_mut() += 1;
+                        psc.num_consistent_reads += 1
+                    }
+                    Entry::Vacant(_) => psc.num_inconsistent_reads += 1,
                 }
-                Entry::Vacant(_) => psc.reads_unclassified += 1,
+                psc.frac_consistent = psc.num_consistent_reads as f32
+                    / (psc.num_consistent_reads + psc.num_inconsistent_reads) as f32
             }
         }
     }
+
+    let ps_detected = identify_primer_set(primer_set_counters);
+
+    println!("{}", ps_detected);
+
+    Ok(())
+}
+/// summarizes primer set observations deciding which primer set was used
+fn identify_primer_set(primer_set_counters: Vec<PrimerSet>) -> String {
+    //TODO: add requirement that X fraction of primers have been observed allowing for some dropouts
+    // a primer set with fewer reads classified but with all primers represented is more confident than one with more raw counts.
+
+    let mut ps_fracs: Vec<(String, f32)> = Vec::new();
     for psc in primer_set_counters {
-        log::info!(
-            "{} classified reads: {:?}",
+        log::debug!(
+            "{} consistent reads: {:?}",
             psc.name,
             psc.primer_counter
                 .iter()
@@ -171,18 +196,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .collect::<HashMap<&Kmer16, &i64>>()
         );
         log::info!(
-            "{} unclassified reads: {}",
+            "{} inconsistent reads: {}",
             psc.name,
-            psc.reads_unclassified
+            psc.num_inconsistent_reads
         );
+        ps_fracs.push((psc.name, psc.frac_consistent));
     }
 
-    //count in batches of N reads
-    // let lines = io::stdin().lines();
-    // for line in lines {
-    //     println!("got a line: {}", line.unwrap());
-    // }
-    Ok(())
+    ps_fracs.sort_unstable_by_key(|ps_frac| (ps_frac.1 * -1000.0) as i32);
+    let ps_detected = if ps_fracs[0].1 > 0.0 {
+        if ps_fracs.len() == 1 || ps_fracs[1].1 <= 0.0  {
+            &ps_fracs[0].0
+        } else if ps_fracs.len() == 1 || ps_fracs[0].1 / ps_fracs[1].1 > 5.0 {
+            &ps_fracs[0].0
+        } else {
+            "unknown"
+        }
+    } else {
+        "unknown"
+    };
+    ps_detected.to_string()
 }
 
 /// Adds an 8-bit (16 nt) representation of the primer to the counter hash.
@@ -220,10 +253,12 @@ fn populate_primer_count_hash(
             record.name()
         ));
     }
-    if primer_counts.contains_key(&key) {
-        log::warn!("Ambiguous primer: {:?}", primer_seq);
-    } else {
-        primer_counts.insert(key, 0);
+    for key in [key,key.rc()] {
+        if primer_counts.contains_key(&key) {
+            log::warn!("Ambiguous primer: {:?}", primer_seq);
+        } else {
+            primer_counts.insert(key, 0);
+        }
     }
     Ok(())
 }

@@ -3,7 +3,7 @@ use assert_cmd;
 use predicates;
 
 use assert_cmd::prelude::*;
-use predicates::{prelude::*, path};
+use predicates::{prelude::*};
 
 use std::{process::Command, path::{Path}};
 
@@ -57,3 +57,15 @@ fn non_matching_primer_sets() {
     cmd.arg("--reads").arg(path_to_fixtures().join("vss.fastq"));
     cmd.assert().stdout( predicate::function(|x: &str| x.contains("unknown")));
 }
+
+#[test]
+fn ont_amps_find_both_orientations() {
+    let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
+
+    cmd.arg("--primer-sets").arg(path_to_fixtures().join("vss_18_28.bed.fasta"));
+    cmd.arg("--reads").arg(path_to_fixtures().join("ont_vss_full_length_amp18rev_amp28for.fastq"));
+    cmd.assert().stdout( predicate::function(|x: &str| x.contains("vss_18_28")));
+}
+
+
+//TODO: add ARTICv4.1 and VSS1a vs VSS2 data 
