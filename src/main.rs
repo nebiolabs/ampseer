@@ -121,7 +121,7 @@ fn classify_reads(
         .map(noodles::fastq::Reader::new)
         .with_context(|| {
             anyhow!(
-                "Failed to open primer_sets file: {:?}",
+                "Failed to open reads file: {:?}",
                 reads_file.as_path()
             )
         })?;
