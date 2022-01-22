@@ -3,8 +3,6 @@ use human_panic::setup_panic;
 
 #[cfg(debug_assertions)]
 extern crate better_panic;
-
-// use std::io::{stdin, stdout, BufWriter}; TODO add support for reads on stdin
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use debruijn::dna_string::*;
@@ -119,12 +117,8 @@ fn classify_reads(
     let mut fastq_reader = File::open(reads_file.as_path())
         .map(BufReader::new)
         .map(noodles::fastq::Reader::new)
-        .with_context(|| {
-            anyhow!(
-                "Failed to open reads file: {:?}",
-                reads_file.as_path()
-            )
-        })?;
+        .with_context(|| anyhow!("Failed to open reads file: {:?}", reads_file.as_path()))?;
+
     Ok(for result in fastq_reader.records() {
         let record = result?;
         let read_seq = DnaString::from_acgt_bytes(record.sequence().as_ref());
@@ -138,6 +132,7 @@ fn classify_reads(
             .slice(read_seq.len() - 16, read_seq.len())
             .get_kmer(0);
 
+        //primer_set_counters.par_iter_mut().for_each(|psc| {
         for psc in &mut *primer_set_counters {
             for key in [left_key, right_key] {
                 match psc.primer_counter.entry(key) {
@@ -193,7 +188,8 @@ fn import_primer_sets(primer_set_paths: &Vec<PathBuf>) -> Result<Vec<PrimerSet>,
 /// summarizes primer set observations deciding which primer set was used
 fn identify_primer_set(primer_set_counters: Vec<PrimerSet>) -> String {
     //TODO: add requirement that X fraction of primers have been observed allowing for some dropouts
-    // a primer set with fewer reads classified but with all primers represented is more confident than one with more raw counts.
+    // a primer set with fewer reads classified but with all primers represented is more confident 
+    // than one with more raw counts on fewer primers
 
     //TODO: infer fragmentation or full length
 
