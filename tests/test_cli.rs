@@ -3,9 +3,13 @@ use assert_cmd;
 use predicates;
 
 use assert_cmd::prelude::*;
-use predicates::{prelude::*};
+use predicates::prelude::*;
 
-use std::{process::Command, path::{Path}};
+use std::{path::Path, process::Command};
+
+fn path_to_fixtures() -> &'static Path {
+    Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures"))
+}
 
 #[test]
 fn test_cli() {
@@ -15,8 +19,7 @@ fn test_cli() {
 
 #[test]
 fn test_version() {
-
-    let expected_version = format!("ampseer {}\n",env!("CARGO_PKG_VERSION"));
+    let expected_version = format!("ampseer {}\n", env!("CARGO_PKG_VERSION"));
     let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
     cmd.arg("--version").assert().stdout(expected_version);
 }
@@ -29,43 +32,89 @@ fn test_help_exit_code() {
 
 #[test]
 fn test_insufficient_arguments() {
-    let expected_output_predicate = || predicate::function(|x: &str| {
-        return x.contains("required arguments");
-    });
+    let expected_output_predicate = || {
+        predicate::function(|x: &str| {
+            return x.contains("required arguments");
+        })
+    };
     let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
-    cmd.arg("--reads").arg("y").assert().stderr(expected_output_predicate());
+    cmd.arg("--reads")
+        .arg("y")
+        .assert()
+        .stderr(expected_output_predicate());
     let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
-    cmd.arg("--primer-sets").arg("x").assert().stderr(expected_output_predicate());
+    cmd.arg("--primer-sets")
+        .arg("x")
+        .assert()
+        .stderr(expected_output_predicate());
 }
 #[test]
 fn missing_reads() {
     let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
     cmd.arg("--primer-sets").arg("midnight.bed");
     cmd.arg("--reads").arg("missing.fastq");
-    cmd.assert().stderr( predicate::function(|x: &str| x.contains("Could not find reads")));
-}
-
-fn path_to_fixtures() -> &'static Path {
-    Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures"))
+    cmd.assert().stderr(predicate::function(|x: &str| {
+        x.contains("Could not find reads")
+    }));
 }
 
 #[test]
 fn non_matching_primer_sets() {
     let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
 
-    cmd.arg("--primer-sets").arg(path_to_fixtures().join("ARTIC_v3.bed.fasta"));
+    cmd.arg("--primer-sets")
+        .arg(path_to_fixtures().join("primer_sets/ARTIC_v3.bed.fasta"));
     cmd.arg("--reads").arg(path_to_fixtures().join("vss.fastq"));
-    cmd.assert().stdout( predicate::function(|x: &str| x.contains("unknown")));
+    cmd.assert()
+        .stdout(predicate::function(|x: &str| x.contains("unknown")));
 }
 
 #[test]
 fn ont_amps_find_both_orientations() {
     let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
 
-    cmd.arg("--primer-sets").arg(path_to_fixtures().join("vss_18_28.bed.fasta"));
-    cmd.arg("--reads").arg(path_to_fixtures().join("ont_vss_full_length_amp18rev_amp28for.fastq"));
-    cmd.assert().stdout( predicate::function(|x: &str| x.contains("vss_18_28")));
+    cmd.arg("--primer-sets")
+        .arg(path_to_fixtures().join("vss_18_28.bed.fasta"));
+    cmd.arg("--reads")
+        .arg(path_to_fixtures().join("ont_vss_full_length_amp18rev_amp28for.fastq"));
+    cmd.assert()
+        .stdout(predicate::function(|x: &str| x.contains("vss_18_28")));
 }
 
+#[test]
+fn differentiate_vss_from_artic_v3() {
+    let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
 
-//TODO: add ARTICv4.1 and VSS1a vs VSS2 data 
+    cmd.arg("--primer-sets")
+        .arg(path_to_fixtures().join("primer_sets/ARTIC_v3.bed.fasta"))
+        .arg(path_to_fixtures().join("primer_sets/neb_vss1a.bed.fasta"));
+    cmd.arg("--reads").arg(path_to_fixtures().join("vss1a.fastq"));
+    cmd.assert()
+        .stdout(predicate::function(|x: &str| x.contains("neb_vss1a")));
+}
+#[test]
+fn differentiate_artic_v3_from_vss() {
+    let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
+
+    cmd.arg("--primer-sets")
+        .arg(path_to_fixtures().join("primer_sets/ARTIC_v3.bed.fasta"))
+        .arg(path_to_fixtures().join("primer_sets/neb_vss1a.bed.fasta"));
+    cmd.arg("--reads").arg(path_to_fixtures().join("artic_v3.fastq"));
+    cmd.assert()
+        .stdout(predicate::function(|x: &str| x.contains("artic_v3")));
+}
+
+#[test]
+fn differentiate_vss2_from_vss1a() {
+    let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
+
+    cmd.arg("--primer-sets")
+        .arg(path_to_fixtures().join("primer_sets/ARTIC_v3.bed.fasta"))
+        .arg(path_to_fixtures().join("primer_sets/neb_vss1a.bed.fasta"))
+        .arg(path_to_fixtures().join("primer_sets/neb_vss2.bed.fasta"));
+    cmd.arg("--reads").arg(path_to_fixtures().join("vss2.fastq"));
+    cmd.assert()
+        .stdout(predicate::function(|x: &str| x.contains("neb_vss2")));
+}
+
+//TODO: add ARTICv4.1
