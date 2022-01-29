@@ -72,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ps_detected = identify_primer_set(primer_set_counters);
 
-    println!("{}", ps_detected);
+    println!("{:?}", ps_detected);
 
     Ok(())
 }
@@ -231,9 +231,15 @@ fn classify_reads(
 }
 
 /// summarizes primer set observations deciding which primer set was used
-fn identify_primer_set(primer_set_counters: Vec<PrimerSet>) -> String {
+fn identify_primer_set(primer_set_counters: Vec<PrimerSet>) -> (String,f32) {
+    let expected_false_positive_ratio = 0.005;
+    let default_primer_set = String::from("unknown");
+    if primer_set_counters.len() == 0 { 
+        return (default_primer_set, 0.0) 
+    };
+
     //TODO: add requirement that X fraction of primers have been observed allowing for some dropouts
-    // a primer set with fewer reads classified but with all primers represented is more confident 
+    // a primer set with fewer reads classified but with all primers represented is more confident
     // than one with more raw counts on fewer primers
 
     //TODO: infer fragmentation or full length
@@ -257,18 +263,23 @@ fn identify_primer_set(primer_set_counters: Vec<PrimerSet>) -> String {
         );
         ps_fracs.push((psc.name, psc.frac_consistent));
     }
-
+    //TODO add a bootstrapping confidence calculation
     ps_fracs.sort_unstable_by_key(|ps_frac| (ps_frac.1 * -1000.0) as i32);
-    let ps_detected = if ps_fracs[0].1 > 0.0 {
-        if ps_fracs.len() == 1 || ps_fracs[1].1 <= 0.0 {
-            &ps_fracs[0].0
-        } else if ps_fracs.len() == 1 || ps_fracs[0].1 / ps_fracs[1].1 > 5.0 {
-            &ps_fracs[0].0
+    log::debug!("matching fractions: {:?}", ps_fracs);
+    let (ps_name, confidence) = if ps_fracs.len() == 1 {
+        // can't use a ratio here - only one being checked
+        // typical ratio for non-matching library is 0.001
+        let confidence = ps_fracs[0].1 / expected_false_positive_ratio;
+        if ps_fracs[0].1 >= expected_false_positive_ratio {
+            (&ps_fracs[0].0, confidence)
         } else {
-            "unknown"
+            (&default_primer_set, 0.0)
         }
+    } else if ps_fracs.len() > 1 && ps_fracs[0].1 / ps_fracs[1].1 > 5.0 {
+        let confidence = ps_fracs[0].1 / ps_fracs[1].1;
+        (&ps_fracs[0].0, confidence)
     } else {
-        "unknown"
+        (&default_primer_set, 0.0)
     };
-    ps_detected.to_string()
+    (ps_name.to_string(), confidence)
 }

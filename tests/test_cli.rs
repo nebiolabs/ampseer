@@ -101,7 +101,7 @@ fn differentiate_artic_v3_from_vss() {
         .arg(path_to_fixtures().join("primer_sets/neb_vss1a.bed.fasta"));
     cmd.arg("--reads").arg(path_to_fixtures().join("artic_v3.fastq"));
     cmd.assert()
-        .stdout(predicate::function(|x: &str| x.contains("artic_v3")));
+        .stdout(predicate::function(|x: &str| x.contains("ARTIC_v3")));
 }
 
 #[test]
