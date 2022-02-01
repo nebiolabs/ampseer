@@ -63,7 +63,7 @@ fn non_matching_primer_sets() {
     let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
 
     cmd.arg("--primer-sets")
-        .arg(path_to_fixtures().join("primer_sets/ARTIC_v3.bed.fasta"));
+        .arg(path_to_fixtures().join("primer_sets/ARTIC_v3.fasta"));
     cmd.arg("--reads").arg(path_to_fixtures().join("vss.fastq"));
     cmd.assert()
         .stdout(predicate::function(|x: &str| x.contains("unknown")));
@@ -74,7 +74,7 @@ fn ont_amps_find_both_orientations() {
     let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
 
     cmd.arg("--primer-sets")
-        .arg(path_to_fixtures().join("vss_18_28.bed.fasta"));
+        .arg(path_to_fixtures().join("vss_18_28.fasta"));
     cmd.arg("--reads")
         .arg(path_to_fixtures().join("ont_vss_full_length_amp18rev_amp28for.fastq"));
     cmd.assert()
@@ -86,8 +86,8 @@ fn differentiate_vss_from_artic_v3() {
     let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
 
     cmd.arg("--primer-sets")
-        .arg(path_to_fixtures().join("primer_sets/ARTIC_v3.bed.fasta"))
-        .arg(path_to_fixtures().join("primer_sets/neb_vss1a.bed.fasta"));
+        .arg(path_to_fixtures().join("primer_sets/ARTIC_v3.fasta"))
+        .arg(path_to_fixtures().join("primer_sets/neb_vss1a.fasta"));
     cmd.arg("--reads").arg(path_to_fixtures().join("vss1a.fastq"));
     cmd.assert()
         .stdout(predicate::function(|x: &str| x.contains("neb_vss1a")));
@@ -97,8 +97,8 @@ fn differentiate_artic_v3_from_vss() {
     let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
 
     cmd.arg("--primer-sets")
-        .arg(path_to_fixtures().join("primer_sets/ARTIC_v3.bed.fasta"))
-        .arg(path_to_fixtures().join("primer_sets/neb_vss1a.bed.fasta"));
+        .arg(path_to_fixtures().join("primer_sets/ARTIC_v3.fasta"))
+        .arg(path_to_fixtures().join("primer_sets/neb_vss1a.fasta"));
     cmd.arg("--reads").arg(path_to_fixtures().join("artic_v3.fastq"));
     cmd.assert()
         .stdout(predicate::function(|x: &str| x.contains("ARTIC_v3")));
@@ -109,9 +109,9 @@ fn differentiate_vss2_from_vss1a() {
     let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
 
     cmd.arg("--primer-sets")
-        .arg(path_to_fixtures().join("primer_sets/ARTIC_v3.bed.fasta"))
-        .arg(path_to_fixtures().join("primer_sets/neb_vss1a.bed.fasta"))
-        .arg(path_to_fixtures().join("primer_sets/neb_vss2.bed.fasta"));
+        .arg(path_to_fixtures().join("primer_sets/ARTIC_v3.fasta"))
+        .arg(path_to_fixtures().join("primer_sets/neb_vss1a.fasta"))
+        .arg(path_to_fixtures().join("primer_sets/neb_vss2.fasta"));
     cmd.arg("--reads").arg(path_to_fixtures().join("vss2.fastq"));
     cmd.assert()
         .stdout(predicate::function(|x: &str| x.contains("neb_vss2")));
