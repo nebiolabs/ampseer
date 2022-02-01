@@ -9,7 +9,8 @@ use debruijn::dna_string::*;
 use debruijn::{kmer::Kmer16, Mer, Vmer};
 use simple_logger::SimpleLogger;
 use std::{
-    collections::hash_map::Entry, collections::HashMap, fs::File, io::BufReader, path::PathBuf,
+    collections::hash_map::Entry, collections::HashMap, collections::HashSet, fs::File,
+    io::BufReader, path::Path, path::PathBuf,
 };
 
 #[derive(Parser)]
@@ -43,6 +44,9 @@ struct PrimerSet {
     frac_consistent: f32,
 }
 
+const EXPECTED_NON_MATCHING_RATIO: f32 = 0.005;
+const DEFAULT_PRIMER_SET: &str = "unknown";
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Human Panic. Only enabled when *not* debugging.
     #[cfg(not(debug_assertions))]
@@ -70,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     classify_reads(&args.reads, &mut primer_set_counters)?;
 
-    let ps_detected = identify_primer_set(primer_set_counters);
+    let ps_detected = identify_primer_set(&primer_set_counters);
 
     println!("{:?}", ps_detected);
 
@@ -110,7 +114,7 @@ fn check_inputs(args: &Cli) -> Result<(), anyhow::Error> {
 }
 
 /// imports primer sets, creating primer_set_counter objects containing k-mers to search for
-fn import_primer_sets(primer_set_paths: &Vec<PathBuf>) -> Result<Vec<PrimerSet>, anyhow::Error> {
+fn import_primer_sets(primer_set_paths: &[PathBuf]) -> Result<Vec<PrimerSet>, anyhow::Error> {
     let mut primer_set_counters: Vec<PrimerSet> = Vec::new();
     for ps_filename in primer_set_paths {
         let mut primer_reader = File::open(ps_filename.as_path())
@@ -181,10 +185,10 @@ fn populate_primer_count_hash(
         ));
     }
     for key in [key, key.rc()] {
-        if primer_counts.contains_key(&key) {
-            log::warn!("Ambiguous primer: {:?}", primer_seq);
+        if let Entry::Vacant(e) = primer_counts.entry(key) {
+            e.insert(0);
         } else {
-            primer_counts.insert(key, 0);
+            log::warn!("Ambiguous primer: {:?}", primer_seq);
         }
     }
     Ok(())
@@ -192,17 +196,17 @@ fn populate_primer_count_hash(
 
 /// populates counts of primers observed in reads
 fn classify_reads(
-    reads_file: &PathBuf,
+    reads_file: &Path,
     primer_set_counters: &mut Vec<PrimerSet>,
 ) -> Result<(), anyhow::Error> {
-    let mut fastq_reader = File::open(reads_file.as_path())
+    let mut fastq_reader = File::open(reads_file)
         .map(BufReader::new)
         .map(noodles::fastq::Reader::new)
-        .with_context(|| anyhow!("Failed to open reads file: {:?}", reads_file.as_path()))?;
+        .with_context(|| anyhow!("Failed to open reads file: {:?}", reads_file))?;
 
     Ok(for result in fastq_reader.records() {
         let record = result?;
-        let read_seq = DnaString::from_acgt_bytes(record.sequence().as_ref());
+        let read_seq = DnaString::from_acgt_bytes(record.sequence());
         if read_seq.len() < 16 {
             log::warn!("skipping short read {:?}", read_seq);
             break;
@@ -219,7 +223,7 @@ fn classify_reads(
                 match psc.primer_counter.entry(key) {
                     Entry::Occupied(val) => {
                         *val.into_mut() += 1;
-                        psc.num_consistent_reads += 1
+                        psc.num_consistent_reads += 1;
                     }
                     Entry::Vacant(_) => psc.num_inconsistent_reads += 1,
                 }
@@ -231,11 +235,9 @@ fn classify_reads(
 }
 
 /// summarizes primer set observations deciding which primer set was used
-fn identify_primer_set(primer_set_counters: Vec<PrimerSet>) -> (String,f32) {
-    let expected_false_positive_ratio = 0.005;
-    let default_primer_set = String::from("unknown");
-    if primer_set_counters.len() == 0 { 
-        return (default_primer_set, 0.0) 
+fn identify_primer_set(primer_set_counters: &[PrimerSet]) -> (String, f32) {
+    if primer_set_counters.is_empty() {
+        return (DEFAULT_PRIMER_SET.to_string(), 0.0);
     };
 
     //TODO: add requirement that X fraction of primers have been observed allowing for some dropouts
@@ -257,29 +259,117 @@ fn identify_primer_set(primer_set_counters: Vec<PrimerSet>) -> (String,f32) {
                 .collect::<HashMap<&Kmer16, &i64>>()
         );
         log::info!(
-            "{} inconsistent reads: {}",
+            "{} con/inconsistent reads: {}/{}",
             psc.name,
+            psc.num_consistent_reads,
             psc.num_inconsistent_reads
         );
-        ps_fracs.push((psc.name, psc.frac_consistent));
+        ps_fracs.push((String::from(&psc.name), psc.frac_consistent));
     }
     //TODO add a bootstrapping confidence calculation
     ps_fracs.sort_unstable_by_key(|ps_frac| (ps_frac.1 * -1000.0) as i32);
     log::debug!("matching fractions: {:?}", ps_fracs);
-    let (ps_name, confidence) = if ps_fracs.len() == 1 {
+    if ps_fracs.len() == 1 {
         // can't use a ratio here - only one being checked
         // typical ratio for non-matching library is 0.001
-        let confidence = ps_fracs[0].1 / expected_false_positive_ratio;
-        if ps_fracs[0].1 >= expected_false_positive_ratio {
-            (&ps_fracs[0].0, confidence)
+        let confidence = ps_fracs[0].1 / EXPECTED_NON_MATCHING_RATIO;
+        if ps_fracs[0].1 >= EXPECTED_NON_MATCHING_RATIO {
+            (String::from(&ps_fracs[0].0), confidence)
         } else {
-            (&default_primer_set, 0.0)
+            (String::from(DEFAULT_PRIMER_SET), 0.0)
         }
-    } else if ps_fracs.len() > 1 && ps_fracs[0].1 / ps_fracs[1].1 > 5.0 {
+    } else if ps_fracs.len() > 1 {
         let confidence = ps_fracs[0].1 / ps_fracs[1].1;
-        (&ps_fracs[0].0, confidence)
+        if ps_fracs[0].1 / ps_fracs[1].1 > EXPECTED_NON_MATCHING_RATIO * 1000.0 {
+            (String::from(&ps_fracs[0].0), confidence)
+        } else {
+            log::debug!("Resolving related primer sets");
+            let (primer_set, confidence) = compare_only_unique_primers(primer_set_counters);
+            (primer_set, confidence)
+        }
     } else {
-        (&default_primer_set, 0.0)
-    };
-    (ps_name.to_string(), confidence)
+        (String::from(DEFAULT_PRIMER_SET), 0.0)
+    }
+}
+/// compares a ratio of only the unique keys to see if we can differentiate between two similar sets
+fn compare_only_unique_primers(primer_set_counters: &[PrimerSet]) -> (String, f32) {
+    if primer_set_counters.len() < 2 {
+        (String::from(DEFAULT_PRIMER_SET), 0.0)
+    } else {
+        let mut top = &primer_set_counters[0];
+        let mut second = &primer_set_counters[0];
+        let mut max_consistent_reads = 0;
+        let mut second_consistent_reads = 0;
+        for psc in primer_set_counters {
+            if psc.num_consistent_reads > max_consistent_reads {
+                top = psc;
+                max_consistent_reads = top.num_consistent_reads;
+            }
+        }
+        for psc in primer_set_counters {
+            if psc.name == top.name { continue;}
+            if psc.num_consistent_reads > second_consistent_reads {
+                second = psc;
+                second_consistent_reads = psc.num_consistent_reads;
+            }
+        }
+
+        log::debug!(
+            "top primer_set {:?}({:?}), second primer_set: {:?}({:?})",
+            top.name,
+            top.num_consistent_reads,
+            second.name,
+            second.num_consistent_reads
+        );
+
+        let top_ps_keys: HashSet<Kmer16> = top.primer_counter.keys().cloned().collect();
+        let second_ps_keys: HashSet<Kmer16> = second.primer_counter.keys().cloned().collect();
+        let top_unique_keys = &top_ps_keys - &second_ps_keys;
+        let second_unique_keys = &second_ps_keys - &top_ps_keys;
+        let mut uniq_top_count = 0;
+        let mut uniq_second_count = 0;
+        for uniq_key in top_unique_keys {
+            let top_count = top.primer_counter.get(&uniq_key).unwrap_or(&0);
+            let second_count = second.primer_counter.get(&uniq_key).unwrap_or(&0);
+            uniq_top_count += top_count;
+            uniq_second_count += second_count;
+            log::debug!(
+                "top uniq_key: {:?} top/second {:?}/{:?}",
+                uniq_key,
+                top_count,
+                second_count
+            );
+        }
+        for uniq_key in second_unique_keys {
+            let top_count = top.primer_counter.get(&uniq_key).unwrap_or(&0);
+            let second_count = second.primer_counter.get(&uniq_key).unwrap_or(&0);
+            uniq_top_count += top_count;
+            uniq_second_count += second_count;
+            log::debug!(
+                "second uniq_key: {:?} top/second {:?}/{:?}",
+                uniq_key,
+                top_count,
+                second_count
+            );
+        }
+
+        let count_ratio = uniq_top_count as f32 / uniq_second_count as f32;
+        log::debug!(
+            "{}/{}= {}/{}",
+            top.name,
+            second.name,
+            uniq_top_count,
+            uniq_second_count
+        );
+        //TODO: figure out probability threshold to choose which one...
+        if count_ratio > EXPECTED_NON_MATCHING_RATIO * 100.0 {
+            //first set's uniq counts
+            (String::from(&top.name), 0.0)
+        } else if 1.0 / count_ratio > EXPECTED_NON_MATCHING_RATIO * 100.0 {
+            //second set
+            (String::from(&second.name), 0.0)
+        } else {
+            (String::from(DEFAULT_PRIMER_SET), 0.0)
+        }
+    }
 }
