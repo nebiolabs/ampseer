@@ -3,6 +3,8 @@ Ampseer examines reads in fastq format and identifies which multiplex PCR primer
 It is intended to differentiate between ARTIC v3, ARTIC v4, ARTIC v4.1, VarSkip 1a, VarSkip 2, Midnight and VarSkip Long primer sets.
 When compiled with --release optimizations, Ampseer processes reads at the same speed as samtools fastq ( < 4s for a 155M bam file on 2019 Macbook Pro)
 
+## This program is not yet fully tested, it's shared now to enable commentary from the scientific community.
+
 ```
 time samtools fastq tests/fixtures/vss2_large.bam \
 | target/release/ampseer --reads /dev/stdin \
