@@ -16,11 +16,11 @@ use std::{
 #[derive(Parser)]
 #[clap(author, version, about)]
 struct Cli {
-    /// file containing reads to examine
+    /// File containing reads to examine (or /dev/stdin)
     #[clap(short, long, parse(from_os_str), value_name = "FILE", required = true)]
     reads: PathBuf,
 
-    /// files containing primer sets to check against
+    /// Files containing primer sets to check against
     #[clap(
         short,
         long,
@@ -31,7 +31,7 @@ struct Cli {
     )]
     primer_sets: Vec<PathBuf>,
 
-    /// Turn debugging information on
+    /// Increase logging verbosity with -d or -dd
     #[clap(short, long, parse(from_occurrences))]
     debug: usize,
 }
@@ -64,10 +64,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .install();
     }
 
-    // Setup Logging, UTC timestamps to avoid platform-specific problems
-    SimpleLogger::new().with_utc_timestamps().init().unwrap();
-
     let args = Cli::parse();
+
+    let default_log_level = if args.debug >= 2 {
+        log::LevelFilter::Trace
+    } else if args.debug >= 1 {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Warn
+    };
+    // Setup Logging, UTC timestamps to avoid platform-specific problems
+    SimpleLogger::new()
+        .with_level(default_log_level)
+        .env()
+        .with_utc_timestamps()
+        .init()
+        .unwrap();
+
     check_inputs(&args)?;
 
     let mut primer_set_counters = import_primer_sets(&args.primer_sets)?;
@@ -160,7 +173,7 @@ fn populate_primer_count_hash(
     if record.name().to_lowercase().contains("left") {
         assert!(key_length <= record.sequence().len());
         key = primer_seq.slice(0, key_length).get_kmer(0);
-        log::debug!(
+        log::trace!(
             "Adding left key: {:?} from {:?}:{:?}",
             key,
             record.name(),
@@ -172,7 +185,7 @@ fn populate_primer_count_hash(
         key = primer_seq
             .slice(offset, record.sequence().len())
             .get_kmer(0);
-        log::debug!(
+        log::trace!(
             "Adding right key: {:?} from {:?}:{:?}",
             key,
             record.name(),
@@ -188,7 +201,7 @@ fn populate_primer_count_hash(
         if let Entry::Vacant(e) = primer_counts.entry(key) {
             e.insert(0);
         } else {
-            log::warn!("Ambiguous primer: {:?}", primer_seq);
+            log::info!("Ambiguous primer: {:?}", primer_seq);
         }
     }
     Ok(())
@@ -307,7 +320,9 @@ fn compare_only_unique_primers(primer_set_counters: &[PrimerSet]) -> (String, f3
             }
         }
         for psc in primer_set_counters {
-            if psc.name == top.name { continue;}
+            if psc.name == top.name {
+                continue;
+            }
             if psc.num_consistent_reads > second_consistent_reads {
                 second = psc;
                 second_consistent_reads = psc.num_consistent_reads;
