@@ -12,6 +12,7 @@ use std::{
     collections::hash_map::Entry, collections::HashMap, collections::HashSet, fs::File,
     io::BufReader, path::Path, path::PathBuf,
 };
+use std::cmp::Ordering;
 
 #[derive(Parser)]
 #[clap(author, version, about)]
@@ -168,39 +169,25 @@ fn populate_primer_count_hash(
     record: noodles::fasta::Record,
 ) -> Result<(), anyhow::Error> {
     let key_length: usize = 16;
-    let key: Kmer16;
     let primer_seq = DnaString::from_acgt_bytes(record.sequence().as_ref());
-    if record.name().to_lowercase().contains("left") {
+    let record_name = record.name().to_lowercase();
+    let key: Kmer16 = if record_name.contains("left") {
         assert!(key_length <= record.sequence().len());
-        key = primer_seq.slice(0, key_length).get_kmer(0);
-        log::trace!(
-            "Adding left key: {:?} from {:?}:{:?}",
-            key,
-            record.name(),
-            primer_seq
-        );
-    } else if record.name().to_lowercase().contains("right") {
+        primer_seq.slice(0, key_length).get_kmer(0)
+    } else if record_name.contains("right") {
         let offset = record.sequence().len() - key_length;
         assert!(offset > 0);
-        key = primer_seq
+        primer_seq
             .slice(offset, record.sequence().len())
-            .get_kmer(0);
-        log::trace!(
-            "Adding right key: {:?} from {:?}:{:?}",
-            key,
-            record.name(),
-            primer_seq
-        );
+            .get_kmer(0)
     } else {
         return Err(anyhow!(
-            "Unable to identify left/right primer from {}",
-            record.name()
+            "Unable to identify left/right primer from {}", record.name()
         ));
-    }
+    };
+
     for key in [key, key.rc()] {
-        if let Entry::Vacant(e) = primer_counts.entry(key) {
-            e.insert(0);
-        } else {
+        if primer_counts.insert(key, 0).is_some() {
             log::info!("Ambiguous primer: {:?}", primer_seq);
         }
     }
@@ -217,7 +204,7 @@ fn classify_reads(
         .map(noodles::fastq::Reader::new)
         .with_context(|| anyhow!("Failed to open reads file: {:?}", reads_file))?;
 
-    Ok(for result in fastq_reader.records() {
+    for result in fastq_reader.records() {
         let record = result?;
         let read_seq = DnaString::from_acgt_bytes(record.sequence());
         if read_seq.len() < 16 {
@@ -244,7 +231,8 @@ fn classify_reads(
                     / (psc.num_consistent_reads + psc.num_inconsistent_reads) as f32
             }
         }
-    })
+    }
+    Ok(())
 }
 
 /// summarizes primer set observations deciding which primer set was used
@@ -282,26 +270,28 @@ fn identify_primer_set(primer_set_counters: &[PrimerSet]) -> (String, f32) {
     //TODO add a bootstrapping confidence calculation
     ps_fracs.sort_unstable_by_key(|ps_frac| (ps_frac.1 * -1000.0) as i32);
     log::debug!("matching fractions: {:?}", ps_fracs);
-    if ps_fracs.len() == 1 {
-        // can't use a ratio here - only one being checked
-        // typical ratio for non-matching library is 0.001
-        let confidence = ps_fracs[0].1 / EXPECTED_NON_MATCHING_RATIO;
-        if ps_fracs[0].1 >= EXPECTED_NON_MATCHING_RATIO {
-            (String::from(&ps_fracs[0].0), confidence)
-        } else {
-            (String::from(DEFAULT_PRIMER_SET), 0.0)
-        }
-    } else if ps_fracs.len() > 1 {
-        let confidence = ps_fracs[0].1 / ps_fracs[1].1;
-        if ps_fracs[0].1 / ps_fracs[1].1 > EXPECTED_NON_MATCHING_RATIO * 1000.0 {
-            (String::from(&ps_fracs[0].0), confidence)
-        } else {
-            log::debug!("Resolving related primer sets");
-            let (primer_set, confidence) = compare_only_unique_primers(primer_set_counters);
-            (primer_set, confidence)
-        }
-    } else {
-        (String::from(DEFAULT_PRIMER_SET), 0.0)
+    match ps_fracs.len().cmp(&1) {
+        Ordering::Equal => {
+            // can't use a ratio here - only one being checked
+            // typical ratio for non-matching library is 0.001
+            let confidence = ps_fracs[0].1 / EXPECTED_NON_MATCHING_RATIO;
+            if ps_fracs[0].1 >= EXPECTED_NON_MATCHING_RATIO {
+                (String::from(&ps_fracs[0].0), confidence)
+            } else {
+                (String::from(DEFAULT_PRIMER_SET), 0.0)
+            }
+        },
+        Ordering::Greater => {
+            let confidence = ps_fracs[0].1 / ps_fracs[1].1;
+            if ps_fracs[0].1 / ps_fracs[1].1 > EXPECTED_NON_MATCHING_RATIO * 1000.0 {
+                (String::from(&ps_fracs[0].0), confidence)
+            } else {
+                log::debug!("Resolving related primer sets");
+                let (primer_set, confidence) = compare_only_unique_primers(primer_set_counters);
+                (primer_set, confidence)
+            }
+        },
+        _ => (String::from(DEFAULT_PRIMER_SET), 0.0)
     }
 }
 /// compares a ratio of only the unique keys to see if we can differentiate between two similar sets
