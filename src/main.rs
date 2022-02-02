@@ -46,11 +46,6 @@ struct PrimerSet {
     frac_consistent: f32,
 }
 
-// struct KmerInfo {
-//     kmer: Kmer16,
-//     primer_seq: DnaString
-// }
-
 const EXPECTED_NON_MATCHING_RATIO: f32 = 0.005;
 const DEFAULT_PRIMER_SET: &str = "unknown";
 
