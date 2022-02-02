@@ -227,9 +227,9 @@ fn classify_reads(
                     }
                     Entry::Vacant(_) => psc.num_inconsistent_reads += 1,
                 }
-                psc.frac_consistent = psc.num_consistent_reads as f32
-                    / (psc.num_consistent_reads + psc.num_inconsistent_reads) as f32
             }
+            psc.frac_consistent = psc.num_consistent_reads as f32
+                / (psc.num_consistent_reads + psc.num_inconsistent_reads) as f32
         }
     }
     Ok(())
