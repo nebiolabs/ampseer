@@ -111,10 +111,10 @@ fn differentiate_vss2_from_vss1a() {
     cmd.arg("--primer-sets")
         .arg(path_to_fixtures().join("primer_sets/ARTIC_v3.fasta"))
         .arg(path_to_fixtures().join("primer_sets/neb_vss1a.fasta"))
-        .arg(path_to_fixtures().join("primer_sets/neb_vss2.fasta"));
+        .arg(path_to_fixtures().join("primer_sets/neb_vss2a.fasta"));
     cmd.arg("--reads").arg(path_to_fixtures().join("vss2.fastq"));
     cmd.assert()
-        .stdout(predicate::function(|x: &str| x.contains("neb_vss2")));
+        .stdout(predicate::function(|x: &str| x.contains("neb_vss2a")));
 }
 
 //TODO: add ARTICv4.1
