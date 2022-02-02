@@ -249,8 +249,7 @@ fn identify_primer_set(primer_set_counters: &[PrimerSet]) -> (String, f32) {
 
     //TODO: check that ratio of left and right are similar for each primer pair
 
-    let mut ps_fracs: Vec<(String, f32)> = Vec::new();
-    for psc in primer_set_counters {
+    let mut ps_fracs = primer_set_counters.iter().map(|psc| {
         log::debug!(
             "{} consistent reads: {:?}",
             psc.name,
@@ -265,8 +264,8 @@ fn identify_primer_set(primer_set_counters: &[PrimerSet]) -> (String, f32) {
             psc.num_consistent_reads,
             psc.num_inconsistent_reads
         );
-        ps_fracs.push((String::from(&psc.name), psc.frac_consistent));
-    }
+        (String::from(&psc.name), psc.frac_consistent)
+    }).collect::<Vec<(String, f32)>>();
     //TODO add a bootstrapping confidence calculation
     ps_fracs.sort_unstable_by_key(|ps_frac| (ps_frac.1 * -1000.0) as i32);
     log::debug!("matching fractions: {:?}", ps_fracs);
