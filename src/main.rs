@@ -3,6 +3,7 @@ use human_panic::setup_panic;
 
 #[cfg(debug_assertions)]
 extern crate better_panic;
+
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use debruijn::dna_string::*;
@@ -23,12 +24,12 @@ struct Cli {
 
     /// Files containing primer sets to check against
     #[clap(
-        short,
-        long,
-        parse(from_os_str),
-        value_name = "FILE",
-        multiple_values = true,
-        required = true
+    short,
+    long,
+    parse(from_os_str),
+    value_name = "FILE",
+    multiple_values = true,
+    required = true
     )]
     primer_sets: Vec<PathBuf>,
 
@@ -45,25 +46,30 @@ struct PrimerSet {
     frac_consistent: f32,
 }
 
+// struct KmerInfo {
+//     kmer: Kmer16,
+//     primer_seq: DnaString
+// }
+
 const EXPECTED_NON_MATCHING_RATIO: f32 = 0.005;
 const DEFAULT_PRIMER_SET: &str = "unknown";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Human Panic. Only enabled when *not* debugging.
     #[cfg(not(debug_assertions))]
-    {
-        setup_panic!();
-    }
+        {
+            setup_panic!();
+        }
 
     // Better Panic. Only enabled *when* debugging.
     #[cfg(debug_assertions)]
-    {
-        better_panic::Settings::debug()
-            .most_recent_first(false)
-            .lineno_suffix(true)
-            .verbosity(better_panic::Verbosity::Full)
-            .install();
-    }
+        {
+            better_panic::Settings::debug()
+                .most_recent_first(false)
+                .lineno_suffix(true)
+                .verbosity(better_panic::Verbosity::Full)
+                .install();
+        }
 
     let args = Cli::parse();
 
@@ -129,69 +135,68 @@ fn check_inputs(args: &Cli) -> Result<(), anyhow::Error> {
 
 /// imports primer sets, creating primer_set_counter objects containing k-mers to search for
 fn import_primer_sets(primer_set_paths: &[PathBuf]) -> Result<Vec<PrimerSet>, anyhow::Error> {
-    let mut primer_set_counters: Vec<PrimerSet> = Vec::new();
-    for ps_filename in primer_set_paths {
-        let mut primer_reader = File::open(ps_filename.as_path())
-            .map(BufReader::new)
-            .map(noodles::fasta::Reader::new)
-            .with_context(|| {
-                anyhow!(
+    let primer_set_counters: Vec<PrimerSet> = primer_set_paths.iter().map(
+        |ps_filename| {
+            let primer_reader = File::open(ps_filename.as_path())
+                .map(BufReader::new)
+                .map(noodles::fasta::Reader::new)
+                .with_context(|| {
+                    anyhow!(
                     "Failed to open primer_sets file: {:?}",
                     ps_filename.as_path()
                 )
-            })?;
+                }).unwrap();
+            //TODO: consider an array of size 65536 instead and just index into that array
+            let primer_counts: HashMap<Kmer16, i64> = primer_counts_from_file(primer_reader).with_context(|| anyhow!("Failed to read records")).unwrap();
+            PrimerSet {
+                name: ps_filename
+                    .file_stem()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+                primer_counter: primer_counts,
+                num_consistent_reads: 0,
+                num_inconsistent_reads: 0,
+                frac_consistent: 0.0,
+            }
+        }).collect();
 
-        //TODO: consider an array of size 65536 instead and just index into that array
-        let mut primer_counts: HashMap<Kmer16, i64> = HashMap::new();
-        for result in primer_reader.records() {
-            let record = result?;
-            populate_primer_count_hash(&mut primer_counts, record)?;
-        }
-        primer_set_counters.push(PrimerSet {
-            name: ps_filename
-                .file_stem()
-                .unwrap()
-                .to_string_lossy()
-                .into_owned(),
-            primer_counter: primer_counts,
-            num_consistent_reads: 0,
-            num_inconsistent_reads: 0,
-            frac_consistent: 0.0,
-        });
-    }
     //TODO: compare all primer sets, removing ambiguous primers
     Ok(primer_set_counters)
 }
 
 /// Adds an 8-bit (16 nt) representation of the primer to the counter hash.
-fn populate_primer_count_hash(
-    primer_counts: &mut HashMap<debruijn::kmer::IntKmer<u32>, i64>,
-    record: noodles::fasta::Record,
-) -> Result<(), anyhow::Error> {
-    let key_length: usize = 16;
-    let primer_seq = DnaString::from_acgt_bytes(record.sequence().as_ref());
-    let record_name = record.name().to_lowercase();
-    let key: Kmer16 = if record_name.contains("left") {
-        assert!(key_length <= record.sequence().len());
-        primer_seq.slice(0, key_length).get_kmer(0)
-    } else if record_name.contains("right") {
-        let offset = record.sequence().len() - key_length;
-        assert!(offset > 0);
-        primer_seq
-            .slice(offset, record.sequence().len())
-            .get_kmer(0)
-    } else {
-        return Err(anyhow!(
+fn primer_counts_from_file(
+    mut primer_reader: noodles::fasta::Reader<BufReader<File>>
+) -> Result<HashMap<Kmer16, i64>, anyhow::Error> {
+    let mut primer_counts: HashMap<Kmer16, i64> = HashMap::new();
+    for result in primer_reader.records() {
+        let record = result?;
+        let key_length: usize = 16;
+        let primer_seq = DnaString::from_acgt_bytes(record.sequence().as_ref());
+        let record_name = record.name().to_lowercase();
+        let key: Kmer16 = if record_name.contains("left") {
+            assert!(key_length <= record.sequence().len());
+            primer_seq.slice(0, key_length).get_kmer(0)
+        } else if record_name.contains("right") {
+            let offset = record.sequence().len() - key_length;
+            assert!(offset > 0);
+            primer_seq
+                .slice(offset, record.sequence().len())
+                .get_kmer(0)
+        } else {
+            return Err(anyhow!(
             "Unable to identify left/right primer from {}", record.name()
         ));
-    };
+        };
 
-    for key in [key, key.rc()] {
-        if primer_counts.insert(key, 0).is_some() {
-            log::info!("Ambiguous primer: {:?}", primer_seq);
+        for key in [key, key.rc()] {
+            if primer_counts.insert(key, 0).is_some() {
+                log::info!("Ambiguous primer: {:?}", primer_seq);
+            }
         }
     }
-    Ok(())
+    Ok(primer_counts)
 }
 
 /// populates counts of primers observed in reads
@@ -280,7 +285,7 @@ fn identify_primer_set(primer_set_counters: &[PrimerSet]) -> (String, f32) {
             } else {
                 (String::from(DEFAULT_PRIMER_SET), 0.0)
             }
-        },
+        }
         Ordering::Greater => {
             let confidence = ps_fracs[0].1 / ps_fracs[1].1;
             if ps_fracs[0].1 / ps_fracs[1].1 > EXPECTED_NON_MATCHING_RATIO * 1000.0 {
@@ -290,10 +295,11 @@ fn identify_primer_set(primer_set_counters: &[PrimerSet]) -> (String, f32) {
                 let (primer_set, confidence) = compare_only_unique_primers(primer_set_counters);
                 (primer_set, confidence)
             }
-        },
+        }
         _ => (String::from(DEFAULT_PRIMER_SET), 0.0)
     }
 }
+
 /// compares a ratio of only the unique keys to see if we can differentiate between two similar sets
 fn compare_only_unique_primers(primer_set_counters: &[PrimerSet]) -> (String, f32) {
     if primer_set_counters.len() < 2 {
