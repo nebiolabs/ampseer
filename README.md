@@ -1,9 +1,11 @@
 # ampseer
 Ampseer examines reads in fastq format and identifies which multiplex PCR primer set was used to generate the SARS-CoV-2 sequencing library they are read from. 
 It is intended to differentiate between ARTIC v3, ARTIC v4, ARTIC v4.1, VarSkip 1a, VarSkip 2a, Midnight, and VarSkip Long primer sets.
-When compiled with --release optimizations, Ampseer processes reads at the same speed as samtools fastq ( < 4s for a 155M bam file on 2019 Macbook Pro)
-
 ## This program is not yet fully tested, it's shared now to enable commentary from the scientific community.
+
+Pull requests and issues are welcome.
+
+When compiled with --release optimizations, Ampseer processes reads at the same speed as samtools fastq ( less than 4s for a 155M bam file on 2019 Macbook Pro)
 
 ```
 time samtools fastq tests/fixtures/vss2_large.bam \
@@ -20,6 +22,7 @@ Note: Ampseer will produce "unknown" unless one primer set can be clearly separa
 
 ## Example Commands:
 ### run the program: 
+This tool does not yet have any binary releases. To try it, you will need to [install rustup](https://forge.rust-lang.org/infra/other-installation-methods.html), or `rustup update` if you are using an older rust installation.
 ```sh
 cargo build --release;
 samtools fastq tests/fixtures/vss2_small.bam
