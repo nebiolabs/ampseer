@@ -9,11 +9,11 @@ use clap::Parser;
 use debruijn::dna_string::*;
 use debruijn::{kmer::Kmer16, Mer, Vmer};
 use simple_logger::SimpleLogger;
+use std::cmp::Ordering;
 use std::{
     collections::hash_map::Entry, collections::HashMap, collections::HashSet, fs::File,
     io::BufReader, path::Path, path::PathBuf,
 };
-use std::cmp::Ordering;
 
 #[derive(Parser)]
 #[clap(author, version, about)]
@@ -24,12 +24,12 @@ struct Cli {
 
     /// Files containing primer sets to check against
     #[clap(
-    short,
-    long,
-    parse(from_os_str),
-    value_name = "FILE",
-    multiple_values = true,
-    required = true
+        short,
+        long,
+        parse(from_os_str),
+        value_name = "FILE",
+        multiple_values = true,
+        required = true
     )]
     primer_sets: Vec<PathBuf>,
 
@@ -48,25 +48,27 @@ struct PrimerSet {
 
 const EXPECTED_NON_MATCHING_RATIO: f32 = 0.005;
 const DEFAULT_PRIMER_SET: &str = "unknown";
+const MER_SIZE: usize = 16;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Human Panic. Only enabled when *not* debugging.
     #[cfg(not(debug_assertions))]
-        {
-            setup_panic!();
-        }
+    {
+        setup_panic!();
+    }
 
     // Better Panic. Only enabled *when* debugging.
     #[cfg(debug_assertions)]
-        {
-            better_panic::Settings::debug()
-                .most_recent_first(false)
-                .lineno_suffix(true)
-                .verbosity(better_panic::Verbosity::Full)
-                .install();
-        }
+    {
+        better_panic::Settings::debug()
+            .most_recent_first(false)
+            .lineno_suffix(true)
+            .verbosity(better_panic::Verbosity::Full)
+            .install();
+    }
 
     let args = Cli::parse();
+    //TODO: add reading directly from STDIN
 
     let default_log_level = if args.debug >= 2 {
         log::LevelFilter::Trace
@@ -130,19 +132,23 @@ fn check_inputs(args: &Cli) -> Result<(), anyhow::Error> {
 
 /// imports primer sets, creating primer_set_counter objects containing k-mers to search for
 fn import_primer_sets(primer_set_paths: &[PathBuf]) -> Result<Vec<PrimerSet>, anyhow::Error> {
-    let primer_set_counters: Vec<PrimerSet> = primer_set_paths.iter().map(
-        |ps_filename| {
+    let primer_set_counters: Vec<PrimerSet> = primer_set_paths
+        .iter()
+        .map(|ps_filename| {
             let primer_reader = File::open(ps_filename.as_path())
                 .map(BufReader::new)
                 .map(noodles::fasta::Reader::new)
                 .with_context(|| {
                     anyhow!(
-                    "Failed to open primer_sets file: {:?}",
-                    ps_filename.as_path()
-                )
-                }).unwrap();
+                        "Failed to open primer_sets file: {:?}",
+                        ps_filename.as_path()
+                    )
+                })
+                .unwrap();
             //TODO: consider an array of size 65536 instead and just index into that array
-            let primer_counts: HashMap<Kmer16, i64> = primer_counts_from_file(primer_reader).with_context(|| anyhow!("Failed to read records")).unwrap();
+            let primer_counts: HashMap<Kmer16, i64> = primer_counts_from_file(primer_reader)
+                .with_context(|| anyhow!("Failed to read records"))
+                .unwrap();
             PrimerSet {
                 name: ps_filename
                     .file_stem()
@@ -154,7 +160,8 @@ fn import_primer_sets(primer_set_paths: &[PathBuf]) -> Result<Vec<PrimerSet>, an
                 num_inconsistent_reads: 0,
                 frac_consistent: 0.0,
             }
-        }).collect();
+        })
+        .collect();
 
     //TODO: compare all primer sets, removing ambiguous primers
     Ok(primer_set_counters)
@@ -162,27 +169,27 @@ fn import_primer_sets(primer_set_paths: &[PathBuf]) -> Result<Vec<PrimerSet>, an
 
 /// Adds an 8-bit (16 nt) representation of the primer to the counter hash.
 fn primer_counts_from_file(
-    mut primer_reader: noodles::fasta::Reader<BufReader<File>>
+    mut primer_reader: noodles::fasta::Reader<BufReader<File>>,
 ) -> Result<HashMap<Kmer16, i64>, anyhow::Error> {
     let mut primer_counts: HashMap<Kmer16, i64> = HashMap::new();
     for result in primer_reader.records() {
         let record = result?;
-        let key_length: usize = 16;
         let primer_seq = DnaString::from_acgt_bytes(record.sequence().as_ref());
         let record_name = record.name().to_lowercase();
         let key: Kmer16 = if record_name.contains("left") {
-            assert!(key_length <= record.sequence().len());
-            primer_seq.slice(0, key_length).get_kmer(0)
+            assert!(MER_SIZE <= record.sequence().len());
+            primer_seq.slice(0, MER_SIZE).get_kmer(0)
         } else if record_name.contains("right") {
-            let offset = record.sequence().len() - key_length;
+            let offset = record.sequence().len() - MER_SIZE;
             assert!(offset > 0);
             primer_seq
                 .slice(offset, record.sequence().len())
                 .get_kmer(0)
         } else {
             return Err(anyhow!(
-            "Unable to identify left/right primer from {}", record.name()
-        ));
+                "Unable to identify left/right primer from {}",
+                record.name()
+            ));
         };
 
         for key in [key, key.rc()] {
@@ -207,14 +214,14 @@ fn classify_reads(
     for result in fastq_reader.records() {
         let record = result?;
         let read_seq = DnaString::from_acgt_bytes(record.sequence());
-        if read_seq.len() < 16 {
+        if read_seq.len() < MER_SIZE {
             log::warn!("skipping short read {:?}", read_seq);
             break;
         }
         // extracts beginning and ending bases of each read
-        let left_key: Kmer16 = read_seq.slice(0, 16).get_kmer(0);
+        let left_key: Kmer16 = read_seq.slice(0, MER_SIZE).get_kmer(0);
         let right_key: Kmer16 = read_seq
-            .slice(read_seq.len() - 16, read_seq.len())
+            .slice(read_seq.len() - MER_SIZE, read_seq.len())
             .get_kmer(0);
 
         //primer_set_counters.par_iter_mut().for_each(|psc| {
@@ -249,23 +256,26 @@ fn identify_primer_set(primer_set_counters: &[PrimerSet]) -> (String, f32) {
 
     //TODO: check that ratio of left and right are similar for each primer pair
 
-    let mut ps_fracs = primer_set_counters.iter().map(|psc| {
-        log::debug!(
-            "{} consistent reads: {:?}",
-            psc.name,
-            psc.primer_counter
-                .iter()
-                .filter(|&(_, &count)| count > 0)
-                .collect::<HashMap<&Kmer16, &i64>>()
-        );
-        log::info!(
-            "{} con/inconsistent reads: {}/{}",
-            psc.name,
-            psc.num_consistent_reads,
-            psc.num_inconsistent_reads
-        );
-        (String::from(&psc.name), psc.frac_consistent)
-    }).collect::<Vec<(String, f32)>>();
+    let mut ps_fracs = primer_set_counters
+        .iter()
+        .map(|psc| {
+            log::debug!(
+                "{} consistent reads: {:?}",
+                psc.name,
+                psc.primer_counter
+                    .iter()
+                    .filter(|&(_, &count)| count > 0)
+                    .collect::<HashMap<&Kmer16, &i64>>()
+            );
+            log::info!(
+                "{} con/inconsistent reads: {}/{}",
+                psc.name,
+                psc.num_consistent_reads,
+                psc.num_inconsistent_reads
+            );
+            (String::from(&psc.name), psc.frac_consistent)
+        })
+        .collect::<Vec<(String, f32)>>();
     //TODO add a bootstrapping confidence calculation
     ps_fracs.sort_unstable_by_key(|ps_frac| (ps_frac.1 * -1000.0) as i32);
     log::debug!("matching fractions: {:?}", ps_fracs);
@@ -290,7 +300,7 @@ fn identify_primer_set(primer_set_counters: &[PrimerSet]) -> (String, f32) {
                 (primer_set, confidence)
             }
         }
-        _ => (String::from(DEFAULT_PRIMER_SET), 0.0)
+        _ => (String::from(DEFAULT_PRIMER_SET), 0.0),
     }
 }
 
