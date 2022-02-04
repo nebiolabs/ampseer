@@ -49,7 +49,6 @@ struct PrimerSet {
 const EXPECTED_NON_MATCHING_RATIO: f32 = 0.005;
 const DEFAULT_PRIMER_SET: &str = "unknown";
 const MER_SIZE: usize = 16;
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Human Panic. Only enabled when *not* debugging.
     #[cfg(not(debug_assertions))]
@@ -93,7 +92,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ps_detected = identify_primer_set(&primer_set_counters);
 
-    println!("{:?}", ps_detected);
+    //TODO: add a way to output all primer sets and their confidence scores
+    println!("{:?}, {:?}", ps_detected.0, ps_detected.1);
 
     Ok(())
 }
