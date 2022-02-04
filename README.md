@@ -7,7 +7,7 @@ Pull requests and issues are welcome.
 
 When compiled with --release optimizations, Ampseer processes reads at the same speed as samtools fastq ( less than 4s for a 155M bam file on 2019 Macbook Pro)
 
-```
+```sh
 time samtools fastq tests/fixtures/vss2_large.bam \
 | target/release/ampseer --reads /dev/stdin \
  --primer-sets primer_sets/*.fasta
@@ -21,24 +21,33 @@ target/release/ampseer --reads /dev/stdin --primer-sets primer_sets/*.fasta  3.4
 Note: Ampseer will produce "unknown" unless one primer set can be clearly separated from other candidates. It will not be able to identify differences between related sets unless both candidate sets are included. For example, ampseer will identify a ARTIC v4.1 library as ARTIC v4 unless both primer sets are included as candidates.
 
 ## Example Commands:
+This tool does not yet have any binary releases. To try it, you will need to [install rustup](https://www.rust-lang.org/tools/install), or `rustup update` if you are using an older rust installation.
+
 ### run the program: 
-This tool does not yet have any binary releases. To try it, you will need to [install rustup](https://forge.rust-lang.org/infra/other-installation-methods.html), or `rustup update` if you are using an older rust installation.
 ```sh
-cargo build --release;
-samtools fastq tests/fixtures/vss2_small.bam
+cargo build --release
+samtools fastq tests/fixtures/vss2_small.bam \
 | target/release/ampseer --reads /dev/stdin \
           --primer-sets primer_sets/*.fasta
 ```
-
-### run the tests
-```
-cargo test
-```
-
-### make a flamegraph (--root needed on MacOS)
+### view ampseer help:
 ```sh
-samtools fastq tests/fixtures/vss2_small.bam
+cargo build --release # may take some time to compile the first time
+target/release/ampseer -h
+```
+
+### run the tests:
+```sh
+cargo test # may take some time to compile the first time
+```
+
+### make a flamegraph (--root needed on MacOS):
+```sh
+samtools fastq tests/fixtures/vss2_small.bam \
 | CARGO_PROFILE_RELEASE_DEBUG=true cargo flamegraph --root \
   -- --reads /dev/stdin \
      --primer-sets primer_sets/*.fasta
 ```
+
+## How does it work?
+Ampseer examines the ends of reads in 16 bp chunks and compares these with the expected sequences specified in the primer sets to identify which primer set is most consistent with the observed reads.
