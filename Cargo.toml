@@ -16,18 +16,18 @@ the specified PCR schemes was used to create the library.
 
 [dependencies]
 log = "0.4"
-simple_logger = { version = "1.16.0", features = ["stderr"] }
-clap = { version = "3.0.0", features = ["cargo", "derive"] }
+simple_logger = { version = "4.0.0", features = ["stderr"] }
+clap = { version = "4.1.4", features = ["cargo", "derive"] }
 human-panic = "1.0.3"
 better-panic = "0.3.0"  
-noodles = { version = "0.17.0", features = ["fasta", "bam", "fastq"] }
+noodles = { version = "0.32.0", features = ["fasta", "bam", "fastq"] }
 debruijn = "0.3.4"
 anyhow = "1.0"
 
 [dev-dependencies]
 assert_cmd = "2.0.2"
 predicates = "2.1.0"
-flamegraph = "0.5.1"
+flamegraph = "0.6.2"    
 
 
 [profile.dev]

@@ -19,23 +19,23 @@ use std::{
 #[clap(author, version, about)]
 struct Cli {
     /// File containing reads to examine (or /dev/stdin)
-    #[clap(short, long, parse(from_os_str), value_name = "FILE", required = true)]
+    #[clap(short, long, value_parser, value_name = "FILE", required = true)]
     reads: PathBuf,
 
     /// Files containing primer sets to check against
     #[clap(
         short,
         long,
-        parse(from_os_str),
+        value_parser,
         value_name = "FILE",
-        multiple_values = true,
+        num_args = 1..,
         required = true
     )]
     primer_sets: Vec<PathBuf>,
 
     /// Increase logging verbosity with -d or -dd
-    #[clap(short, long, parse(from_occurrences))]
-    debug: usize,
+    #[clap(short, long, action = clap::ArgAction::Count)]
+    debug: u8,
 }
 
 struct PrimerSet {
