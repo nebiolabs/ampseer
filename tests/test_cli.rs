@@ -56,8 +56,18 @@ fn missing_fastq_file() {
     cmd.arg("--primer-sets")
         .arg("primer_sets/Midnight_1200.fasta");
     cmd.arg("--reads").arg("missing.fastq");
+    cmd.arg("-d");
     cmd.assert()
         .stderr(predicate::str::contains("Could not find reads"));
+}
+#[test]
+fn missing_primer_set_file() {
+    let mut cmd = Command::cargo_bin("ampseer").expect("Calling binary failed");
+    cmd.arg("--primer-sets").arg("primer_sets/missing.fasta");
+    cmd.arg("--reads").arg("missing.fastq");
+    cmd.arg("-ddd");
+    cmd.assert()
+        .stderr(predicate::str::contains("Could not find primer set"));
 }
 
 #[test]
@@ -80,6 +90,7 @@ fn non_matching_primer_sets() {
 
     cmd.arg("--primer-sets").arg("primer_sets/ARTIC_v3.fasta");
     cmd.arg("--reads").arg("vss.fastq");
+    cmd.arg("-dd");
     cmd.assert().stdout(predicate::str::contains("unknown"));
 }
 
