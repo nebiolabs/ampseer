@@ -6,7 +6,7 @@ authors = ["Bradley W. Langhorst <langhorst@neb.com>"]
 license = "AGPL-3.0"
 keywords = ["amplicon", "sequencing", "artic"]
 repository = "https://github.com/nebiolabs/ampseer"   
-rust-version = "1.58" 
+rust-version = "1.75" 
 description = """
 This program compares fastq read files (on stdin or from first argument) with expected
 mulitiplex PCR amplicon start and end sequences to identify which of
@@ -19,16 +19,16 @@ log = "0.4"
 simple_logger = { version = "4.0.0", features = ["stderr"] }
 clap = { version = "4.1.4", features = ["cargo", "derive"] }
 human-panic = "1.0.3"
-better-panic = "0.3.0"  
-noodles = { version = "0.32.0", features = ["fasta", "bam", "fastq"] }
+better-panic = "0.3.0"
+noodles = { version = "0.63.0", features = ["fasta", "bam", "fastq"] }
 debruijn = "0.3.4"
 anyhow = "1.0"
 
 [dev-dependencies]
-assert_cmd = "2.0.2"
-predicates = "2.1.0"
+assert_cmd = "2.0.13"
+predicates = "3.1.0"
 flamegraph = "0.6.2"    
-
+duct = "0.13.7" # for testing piping between upstream decompressors and ampseer
 
 [profile.dev]
 opt-level=0

@@ -6,21 +6,21 @@ extern crate better_panic;
 
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
-use debruijn::dna_string::*;
-use debruijn::{kmer::Kmer16, Mer, Vmer};
+use debruijn::{dna_string::*, Mer};
+use debruijn::{kmer::Kmer16, Vmer};
 use simple_logger::SimpleLogger;
 use std::cmp::Ordering;
 use std::{
     collections::hash_map::Entry, collections::HashMap, collections::HashSet, fs::File,
-    io::BufReader, path::Path, path::PathBuf,
+    io::BufReader, path::PathBuf, io::Read
 };
 
 #[derive(Parser)]
 #[clap(author, version, about)]
 struct Cli {
     /// File containing reads to examine (or /dev/stdin)
-    #[clap(short, long, value_parser, value_name = "FILE", required = true)]
-    reads: PathBuf,
+    #[clap(short, long, value_parser, value_name = "FILE")]
+    reads: Option<PathBuf>,
 
     /// Files containing primer sets to check against
     #[clap(
@@ -67,7 +67,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let args = Cli::parse();
-    //TODO: add reading directly from STDIN
 
     let default_log_level = if args.debug >= 2 {
         log::LevelFilter::Trace
@@ -85,10 +84,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     check_inputs(&args)?;
+    // Handle reads on stdin or a file if provided
+    let reads = if let Some(reads) = args.reads.as_deref() {
+        Box::new(File::open(reads)?)
+    } else {
+        // If --reads was not specified, use stdin
+        Box::new(File::open("/dev/stdin")?)
+    };
+    
 
     let mut primer_set_counters = import_primer_sets(&args.primer_sets)?;
 
-    classify_reads(&args.reads, &mut primer_set_counters)?;
+    classify_reads(reads, &mut primer_set_counters)?;
 
     let ps_detected = identify_primer_set(&primer_set_counters);
 
@@ -102,22 +109,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn check_inputs(args: &Cli) -> Result<(), anyhow::Error> {
     let mut error_messages = Vec::new();
 
-    if args.reads.exists() && args.primer_sets.iter().all(|ps| ps.exists()) {
+    if args.reads.clone().is_some_and(|reads| reads.exists()) && 
+       args.primer_sets.iter().all(|ps| ps.exists()) {
         log::info!(
             "Searching for primers from {:?} in reads from: {:?}",
             args.primer_sets,
-            args.reads
+            args.reads.as_deref().unwrap_or(&PathBuf::from("/dev/stdin"))
         );
     } else {
         for ps in &args.primer_sets {
             if !ps.exists() {
-                error_messages.push(format!("Could not find primer sets at {:?}", ps.as_path()));
+                error_messages.push(format!("Could not find primer set at {:?}", ps.as_path()));
             }
         }
-        if !args.reads.exists() {
+        if args.reads.clone().is_some_and(|reads| ! reads.exists()) {
             error_messages.push(format!(
                 "Could not find reads at {:?}",
-                args.reads.as_path()
+                args.reads.as_ref().unwrap().as_path()
             ));
         }
     }
@@ -175,7 +183,7 @@ fn primer_counts_from_file(
     for result in primer_reader.records() {
         let record = result?;
         let primer_seq = DnaString::from_acgt_bytes(record.sequence().as_ref());
-        let record_name = record.name().to_lowercase();
+        let record_name = String::from_utf8_lossy(record.name()).to_lowercase();
         let key: Kmer16 = if record_name.contains("left") {
             assert!(MER_SIZE <= record.sequence().len());
             primer_seq.slice(0, MER_SIZE).get_kmer(0)
@@ -187,7 +195,7 @@ fn primer_counts_from_file(
                 .get_kmer(0)
         } else {
             return Err(anyhow!(
-                "Unable to identify left/right primer from {}",
+                "Unable to identify left/right primer from {:?}",
                 record.name()
             ));
         };
@@ -203,13 +211,15 @@ fn primer_counts_from_file(
 
 /// populates counts of primers observed in reads
 fn classify_reads(
-    reads_file: &Path,
+    reads: Box<dyn Read>,
     primer_set_counters: &mut Vec<PrimerSet>,
 ) -> Result<(), anyhow::Error> {
-    let mut fastq_reader = File::open(reads_file)
-        .map(BufReader::new)
-        .map(noodles::fastq::Reader::new)
-        .with_context(|| anyhow!("Failed to open reads file: {:?}", reads_file))?;
+    let mut fastq_reader = noodles::fastq::Reader::new(BufReader::new(reads));
+
+    // let mut fastq_reader = File::open(reads_file)
+    //     .map(BufReader::new)
+    //     .map(noodles::fastq::Reader::new)
+    //     .with_context(|| anyhow!("Failed to open reads file: {:?}", reads_file))?;
 
     for result in fastq_reader.records() {
         let record = result?;
@@ -276,12 +286,19 @@ fn identify_primer_set(primer_set_counters: &[PrimerSet]) -> (String, f32) {
             (String::from(&psc.name), psc.frac_consistent)
         })
         .collect::<Vec<(String, f32)>>();
-    //TODO add a bootstrapping confidence calculation
+    //TODO add a bootstrapping confidence calculation - consider randomly selects 50% of amplicons 1000 times
+    //ideas: - consider random selections of reads  ( number of ways to select 80% of reads = permutations, data structure to hold 1000 seeds in columns )
+    // i need to figure out a way to increment the appropriate columns for each read (maybe a bitmask?)
+    // a function that returns a unique bitmask for each seed?
+    
+    //       - consider random amplicons (simulating dropouts) 
+    //       - 
+    // score = num consistent with all amplicons answer/ 1000
     ps_fracs.sort_unstable_by_key(|ps_frac| (ps_frac.1 * -1000.0) as i32);
     log::debug!("matching fractions: {:?}", ps_fracs);
     match ps_fracs.len().cmp(&1) {
         Ordering::Equal => {
-            // can't use a ratio here - only one being checked
+            // can't use a ratio here - only one set is being checked
             // typical ratio for non-matching library is 0.001
             let confidence = ps_fracs[0].1 / EXPECTED_NON_MATCHING_RATIO;
             if ps_fracs[0].1 >= EXPECTED_NON_MATCHING_RATIO {
@@ -304,7 +321,19 @@ fn identify_primer_set(primer_set_counters: &[PrimerSet]) -> (String, f32) {
     }
 }
 
+//number of signals about set identity = number of amplicons * 2
+//points of evidence are the total number of observed k-mers (sum of reads )
+//signal = number of points of evidence that are consistent with identified set
+//noise = number of points of evidence that are inconsistent with identified set
+//score = SNR
+
+//goal: score = 1 if all available evidence is in favor of winning candidate 
+//      score = 0 if cannot differentiate between 2 candidates
+//winner - runnerup  =* confidence
+
+
 /// compares a ratio of only the unique keys to see if we can differentiate between two similar sets
+/// confidence is estimated considering the number of unique k-mers used
 fn compare_only_unique_primers(primer_set_counters: &[PrimerSet]) -> (String, f32) {
     if primer_set_counters.len() < 2 {
         (String::from(DEFAULT_PRIMER_SET), 0.0)
