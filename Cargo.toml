@@ -15,19 +15,19 @@ the specified PCR schemes was used to create the library.
 
 
 [dependencies]
-log = "0.4"
-simple_logger = { version = "4.0.0", features = ["stderr"] }
-clap = { version = "4.1.4", features = ["cargo", "derive"] }
-human-panic = "1.0.3"
+log = "0.4.20"
+simple_logger = { version = "4.3.3", features = ["stderr"] }
+clap = { version = "4.5.0", features = ["cargo", "derive"] }
+human-panic = "1.2.3"
 better-panic = "0.3.0"
 noodles = { version = "0.63.0", features = ["fasta", "bam", "fastq"] }
 debruijn = "0.3.4"
-anyhow = "1.0"
+anyhow = "1.0.79"
 
 [dev-dependencies]
 assert_cmd = "2.0.13"
 predicates = "3.1.0"
-flamegraph = "0.6.2"    
+flamegraph = "0.6.5"    
 duct = "0.13.7" # for testing piping between upstream decompressors and ampseer
 
 [profile.dev]
