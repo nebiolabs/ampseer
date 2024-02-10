@@ -1,4 +1,4 @@
-name: Rust
+name: Tests
 
 on:
     pull_request:
@@ -9,8 +9,13 @@ jobs:
     build:
         runs-on: ubuntu-latest
         steps:
-        - uses: actions/checkout@v2
+        - uses: actions/checkout@v4
+        - uses: taiki-e/install-action@cargo-llvm-cov
         - name: Build
           run: cargo build --verbose
-        - name: Run Tests
+        - name: Run tests
           run: cargo test --verbose
+        - name: Check code style
+          run: cargo clippy -- -D warnings
+        - name: Check code coverage
+          run: cargo llvm-cov --html --verbose

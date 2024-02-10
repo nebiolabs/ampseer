@@ -12,7 +12,7 @@ use simple_logger::SimpleLogger;
 use std::cmp::Ordering;
 use std::{
     collections::hash_map::Entry, collections::HashMap, collections::HashSet, fs::File,
-    io::BufReader, path::PathBuf, io::Read
+    io::BufReader, io::Read, path::PathBuf,
 };
 
 #[derive(Parser)]
@@ -88,10 +88,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reads = if let Some(reads) = args.reads.as_deref() {
         Box::new(File::open(reads)?)
     } else {
-        // If --reads was not specified, use stdin
+        //--reads was not specified, use stdin
         Box::new(File::open("/dev/stdin")?)
     };
-    
 
     let mut primer_set_counters = import_primer_sets(&args.primer_sets)?;
 
@@ -105,16 +104,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// checks the passed input structure for reasonableness, printing error if necessary.
+/// checks the passed input structure for reasonableness, printing errors as necessary.
 fn check_inputs(args: &Cli) -> Result<(), anyhow::Error> {
     let mut error_messages = Vec::new();
 
-    if args.reads.clone().is_some_and(|reads| reads.exists()) && 
-       args.primer_sets.iter().all(|ps| ps.exists()) {
+    if args.reads.clone().is_some_and(|reads| reads.exists())
+        && args.primer_sets.iter().all(|ps| ps.exists())
+    {
         log::info!(
             "Searching for primers from {:?} in reads from: {:?}",
             args.primer_sets,
-            args.reads.as_deref().unwrap_or(&PathBuf::from("/dev/stdin"))
+            args.reads
+                .as_deref()
+                .unwrap_or(&PathBuf::from("/dev/stdin"))
         );
     } else {
         for ps in &args.primer_sets {
@@ -122,7 +124,7 @@ fn check_inputs(args: &Cli) -> Result<(), anyhow::Error> {
                 error_messages.push(format!("Could not find primer set at {:?}", ps.as_path()));
             }
         }
-        if args.reads.clone().is_some_and(|reads| ! reads.exists()) {
+        if args.reads.clone().is_some_and(|reads| !reads.exists()) {
             error_messages.push(format!(
                 "Could not find reads at {:?}",
                 args.reads.as_ref().unwrap().as_path()
@@ -290,9 +292,9 @@ fn identify_primer_set(primer_set_counters: &[PrimerSet]) -> (String, f32) {
     //ideas: - consider random selections of reads  ( number of ways to select 80% of reads = permutations, data structure to hold 1000 seeds in columns )
     // i need to figure out a way to increment the appropriate columns for each read (maybe a bitmask?)
     // a function that returns a unique bitmask for each seed?
-    
-    //       - consider random amplicons (simulating dropouts) 
-    //       - 
+
+    //       - consider random amplicons (simulating dropouts)
+    //       -
     // score = num consistent with all amplicons answer/ 1000
     ps_fracs.sort_unstable_by_key(|ps_frac| (ps_frac.1 * -1000.0) as i32);
     log::debug!("matching fractions: {:?}", ps_fracs);
@@ -327,10 +329,9 @@ fn identify_primer_set(primer_set_counters: &[PrimerSet]) -> (String, f32) {
 //noise = number of points of evidence that are inconsistent with identified set
 //score = SNR
 
-//goal: score = 1 if all available evidence is in favor of winning candidate 
+//goal: score = 1 if all available evidence is in favor of winning candidate
 //      score = 0 if cannot differentiate between 2 candidates
 //winner - runnerup  =* confidence
-
 
 /// compares a ratio of only the unique keys to see if we can differentiate between two similar sets
 /// confidence is estimated considering the number of unique k-mers used

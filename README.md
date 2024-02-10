@@ -3,6 +3,9 @@ Ampseer examines reads in fastq format and identifies which multiplex PCR primer
 It is intended to differentiate between ARTIC v3, ARTIC v4, ARTIC v4.1, VarSkip 1a, VarSkip 2a, Midnight, and VarSkip Long primer sets.
 ## This program is not yet fully tested, it's shared now to enable commentary from the scientific community.
 
+![Tests](https://github.com/nebiolabs/ampseer/workflows/Tests/badge.svg)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+
 Pull requests and issues are welcome.
 
 When compiled with --release optimizations, Ampseer processes reads at the same speed as samtools fastq ( less than 4s for a 155M bam file on 2019 Macbook Pro)
@@ -18,7 +21,7 @@ samtools fastq tests/fixtures/vss2_large.bam  3.55s user 0.11s system 99% cpu 3.
 target/release/ampseer --reads /dev/stdin --primer-sets primer_sets/*.fasta  3.40s user 0.09s system 95% cpu 3.661 total
 ```
 
-Note: Ampseer will produce "unknown" unless one primer set can be clearly separated from other candidates. It will not be able to identify differences between related sets unless both candidate sets are included. For example, ampseer will identify a ARTIC v4.1 library as ARTIC v4 unless both primer sets are included as candidates.
+Note: Ampseer will produce "unknown" unless one primer set can be clearly separated from other candidates. It will not be able to identify differences between related sets unless both candidate sets are included. For example, ampseer will identify n ARTIC v4.1 library as ARTIC v4 unless both primer sets are included as candidates.
 
 ## Example Commands:
 This tool does not yet have any binary releases. To try it, you will need to [install rustup](https://www.rust-lang.org/tools/install), or `rustup update` if you are using an older rust installation.
@@ -32,13 +35,25 @@ samtools fastq tests/fixtures/vss2_small.bam \
 ```
 ### view ampseer help:
 ```sh
-cargo build --release # may take some time to compile the first time
+cargo build --release
 target/release/ampseer -h
 ```
 
 ### run the tests:
 ```sh
-cargo test # may take some time to compile the first time
+cargo test
+```
+### code style checking:
+```sh
+cargo clippy
+```
+### evaluate code coverage via html:
+```sh
+cargo llvm-cov --open 
+```
+### evaluate code coverage in vscode:
+```sh
+cargo llvm-cov --lcov --output-path lcov.info  
 ```
 
 ### make a flamegraph (--root needed on MacOS):
