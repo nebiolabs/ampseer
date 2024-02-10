@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reads = if let Some(reads) = args.reads.as_deref() {
         Box::new(File::open(reads)?)
     } else {
-        // If --reads was not specified, use stdin
+        //--reads was not specified, use stdin
         Box::new(File::open("/dev/stdin")?)
     };
     
@@ -105,7 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// checks the passed input structure for reasonableness, printing error if necessary.
+/// checks the passed input structure for reasonableness, printing errors as necessary.
 fn check_inputs(args: &Cli) -> Result<(), anyhow::Error> {
     let mut error_messages = Vec::new();
 
