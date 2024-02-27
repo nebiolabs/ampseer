@@ -40,7 +40,7 @@ struct Cli {
 
 struct PrimerSet {
     name: String,
-    primer_counter: HashMap<Kmer16, i64>,
+    primer_counter: HashMap<Kmer16, [u32;128]>, // 4B upper limit should be sufficient
     num_consistent_reads: i64,
     num_inconsistent_reads: i64,
     frac_consistent: f32,
@@ -156,7 +156,7 @@ fn import_primer_sets(primer_set_paths: &[PathBuf]) -> Result<Vec<PrimerSet>, an
                 })
                 .unwrap();
             //TODO: consider an array of size 65536 instead and just index into that array
-            let primer_counts: HashMap<Kmer16, i64> = primer_counts_from_file(primer_reader)
+            let primer_counts: HashMap<Kmer16, [u32;128]> = primer_counts_from_file(primer_reader)
                 .with_context(|| anyhow!("Failed to read records"))
                 .unwrap();
             PrimerSet {
@@ -180,8 +180,8 @@ fn import_primer_sets(primer_set_paths: &[PathBuf]) -> Result<Vec<PrimerSet>, an
 /// Adds an 8-bit (16 nt) representation of the primer to the counter hash.
 fn primer_counts_from_file(
     mut primer_reader: noodles::fasta::Reader<BufReader<File>>,
-) -> Result<HashMap<Kmer16, i64>, anyhow::Error> {
-    let mut primer_counts: HashMap<Kmer16, i64> = HashMap::new();
+) -> Result<HashMap<Kmer16, [u32;128]>, anyhow::Error> {
+    let mut primer_counts: HashMap<Kmer16, [u32;128]> = HashMap::new();
     for result in primer_reader.records() {
         let record = result?;
         let primer_seq = DnaString::from_acgt_bytes(record.sequence().as_ref());
@@ -203,8 +203,9 @@ fn primer_counts_from_file(
         };
 
         for key in [key, key.rc()] {
-            if primer_counts.insert(key, 0).is_some() {
-                log::info!("Ambiguous primer: {:?}", primer_seq);
+            primer_counts.entry(key).or_insert_with(|| [0u32; 128]);
+            if primer_counts.get(&key).unwrap().len() > 1 {
+                log::debug!("Ambiguous primer: {:?}", primer_seq);
             }
         }
     }
@@ -236,12 +237,17 @@ fn classify_reads(
             .slice(read_seq.len() - MER_SIZE, read_seq.len())
             .get_kmer(0);
 
+        // Create a pseudorandom 128 bit vector using the name of each fastq record as a seed
+        let hash_bits = format!("{:064b}", xxh3::hash128_with_seed(record.name(), 42));
+        let hash_bits_vec: Vec<u8> = hash_bits.chars().map(|c| c.to_digit(2).unwrap() as u8).collect();
         //primer_set_counters.par_iter_mut().for_each(|psc| {
         for psc in &mut *primer_set_counters {
             for key in [left_key, right_key] {
                 match psc.primer_counter.entry(key) {
-                    Entry::Occupied(val) => {
-                        *val.into_mut() += 1;
+                    Entry::Occupied(counter) => {
+                        counter.into_mut().iter_mut().zip(hash_bits_vec.iter()).for_each(|(count, &val)| {
+                            *count += val as u32;
+                        });
                         psc.num_consistent_reads += 1;
                     }
                     Entry::Vacant(_) => psc.num_inconsistent_reads += 1,
@@ -272,12 +278,19 @@ fn identify_primer_set(primer_set_counters: &[PrimerSet]) -> (String, f32) {
         .iter()
         .map(|psc| {
             log::debug!(
-                "{} consistent reads: {:?}",
+                "{} consistent reads (avg): {:?}",
                 psc.name,
                 psc.primer_counter
                     .iter()
-                    .filter(|&(_, &count)| count > 0)
-                    .collect::<HashMap<&Kmer16, &i64>>()
+                    .filter_map(|(&kmer, counters)| {
+                        let avg_count: i64 = counters.iter().sum::<u32>() as i64 / counters.len() as i64;
+                        if avg_count > 0 {
+                            Some((kmer, avg_count))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<HashMap<Kmer16, i64>>()
             );
             log::info!(
                 "{} con/inconsistent reads: {}/{}",
@@ -291,7 +304,7 @@ fn identify_primer_set(primer_set_counters: &[PrimerSet]) -> (String, f32) {
     //TODO add a bootstrapping confidence calculation - consider randomly selects 50% of amplicons 1000 times
     //ideas: - consider random selections of reads  ( number of ways to select 80% of reads = permutations, data structure to hold 1000 seeds in columns )
     // i need to figure out a way to increment the appropriate columns for each read (maybe a bitmask?)
-    // a function that returns a unique bitmask for each seed?
+    // a function that returns a unique bitmask for each read?
 
     //       - consider random amplicons (simulating dropouts)
     //       -
@@ -373,9 +386,16 @@ fn compare_only_unique_primers(primer_set_counters: &[PrimerSet]) -> (String, f3
         let second_unique_keys = &second_ps_keys - &top_ps_keys;
         let mut uniq_top_count = 0;
         let mut uniq_second_count = 0;
+        fn get_min_count(primer_counter: &HashMap<Kmer16, [u32;128]>, uniq_key: &Kmer16) -> u32 {
+            primer_counter.get(uniq_key)
+                .map(|counts| counts.iter().filter(|&&count| count != 0).min().copied().unwrap_or(0))
+                .unwrap_or(0)
+        }
         for uniq_key in top_unique_keys {
-            let top_count = top.primer_counter.get(&uniq_key).unwrap_or(&0);
-            let second_count = second.primer_counter.get(&uniq_key).unwrap_or(&0);
+
+            let top_count = get_min_count(&top.primer_counter, &uniq_key);
+            let second_count = get_min_count(&second.primer_counter, &uniq_key);
+
             uniq_top_count += top_count;
             uniq_second_count += second_count;
             log::debug!(
@@ -386,10 +406,8 @@ fn compare_only_unique_primers(primer_set_counters: &[PrimerSet]) -> (String, f3
             );
         }
         for uniq_key in second_unique_keys {
-            let top_count = top.primer_counter.get(&uniq_key).unwrap_or(&0);
-            let second_count = second.primer_counter.get(&uniq_key).unwrap_or(&0);
-            uniq_top_count += top_count;
-            uniq_second_count += second_count;
+            let top_count = get_min_count(&top.primer_counter, &uniq_key);
+            let second_count = get_min_count(&second.primer_counter, &uniq_key);
             log::debug!(
                 "second uniq_key: {:?} top/second {:?}/{:?}",
                 uniq_key,

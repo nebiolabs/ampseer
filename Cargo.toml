@@ -20,9 +20,10 @@ simple_logger = { version = "4.3.3", features = ["stderr"] }
 clap = { version = "4.5.0", features = ["cargo", "derive"] }
 human-panic = "1.2.3"
 better-panic = "0.3.0"
-noodles = { version = "0.63.0", features = ["fasta", "bam", "fastq"] }
+noodles = { version = "0.65.0", features = ["fasta", "bam", "fastq"] }
 debruijn = "0.3.4"
 anyhow = "1.0.79"
+xxh3 = "0.1.1" #used to construct 128 bit hash from read name
 
 [dev-dependencies]
 assert_cmd = "2.0.13"
