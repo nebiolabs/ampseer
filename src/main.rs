@@ -68,10 +68,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = Cli::parse();
 
-    let default_log_level = if args.debug >= 2 {
+    let default_log_level = if args.debug >= 3 {
         log::LevelFilter::Trace
-    } else if args.debug >= 1 {
+    } else if args.debug >= 2 {
         log::LevelFilter::Debug
+    } else if args.debug >= 1 {
+        log::LevelFilter::Info
     } else {
         log::LevelFilter::Warn
     };
@@ -327,7 +329,7 @@ fn identify_primer_set(primer_set_counters: &[PrimerSet]) -> (String, f32) {
             if ps_fracs[0].1 / ps_fracs[1].1 > EXPECTED_NON_MATCHING_RATIO * 1000.0 {
                 (String::from(&ps_fracs[0].0), confidence)
             } else {
-                log::debug!("Resolving related primer sets");
+                log::info!("Resolving related primer sets...");
                 let (primer_set, confidence) = compare_only_unique_primers(primer_set_counters);
                 (primer_set, confidence)
             }
@@ -372,7 +374,7 @@ fn compare_only_unique_primers(primer_set_counters: &[PrimerSet]) -> (String, f3
             }
         }
 
-        log::debug!(
+        log::info!(
             "top primer_set {:?}({:?}), second primer_set: {:?}({:?})",
             top.name,
             top.num_consistent_reads,
@@ -417,7 +419,7 @@ fn compare_only_unique_primers(primer_set_counters: &[PrimerSet]) -> (String, f3
         }
 
         let count_ratio = uniq_top_count as f32 / uniq_second_count as f32;
-        log::debug!(
+        log::info!(
             "{}/{}= {}/{}",
             top.name,
             second.name,
